@@ -14,6 +14,12 @@ App Android (100% Kotlin, un solo módulo `:app`, un solo APK) para celular y An
   gestos (brillo/volumen/seek/doble-tap) en celular y controlador D-pad en TV.
 - **Seguir viendo** y **Favoritos** (Room). Sin EPG.
 
+## Documentación
+
+- [Plan estilo TiviMate](docs/PLAN_TIVIMATE.md) — análisis de la referencia y estado de implementación.
+- [Changelog](docs/CHANGELOG.md) — historial de versiones.
+- [Arquitectura](docs/ARQUITECTURA.md) — estructura del proyecto y decisiones fijas.
+
 ## Compilar
 
 ```bash
