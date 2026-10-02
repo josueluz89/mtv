@@ -62,8 +62,15 @@ fun ServersScreen(onConnected: () -> Unit) {
     LaunchedEffect(Unit) {
         username = container.userPrefs.getUsername()
         password = container.userPrefs.getPassword()
-        val report = CrashReporter.read(context)
-        if (report.contains("===== CRASH")) crashReport = report.takeLast(6000)
+        // El resumen ya trae lo esencial (tipo de error + qué cargaba); si no
+        // existe, se usa la cola del log completo como respaldo.
+        val resumen = CrashReporter.readResumen(context)
+        crashReport = when {
+            resumen.isNotBlank() -> resumen
+            CrashReporter.read(context).contains("===== CRASH") ->
+                CrashReporter.read(context).takeLast(6000)
+            else -> null
+        }
     }
     LaunchedEffect(errorMessage) {
         errorMessage?.let {

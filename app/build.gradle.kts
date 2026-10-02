@@ -14,8 +14,8 @@ android {
         applicationId = "com.mtv.iptv"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.0.4"
 
         // TMDB API key del dueño, compilada como BuildConfig (no va en texto plano en el código fuente).
         buildConfigField("String", "TMDB_API_KEY", "\"01926d2187b6a5d861eefc750e9df3e3\"")
