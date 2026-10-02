@@ -1,6 +1,7 @@
 package com.mtv.iptv.player
 
 import android.content.Context
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.TrackSelectionOverride
@@ -40,8 +41,22 @@ class PlayerManager(
     private val trackSelector = DefaultTrackSelector(appContext)
 
     private val renderersFactory = DefaultRenderersFactory(appContext)
-        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+        // EXTENSION_RENDERER_MODE_ON: el FfmpegAudioRenderer (extensión) se
+        // agrega DESPUÉS de los renderers MediaCodec del dispositivo, así
+        // FFmpeg solo entra como respaldo si el hardware no soporta el
+        // formato de audio. Requiere el módulo :decoder_ffmpeg compilado.
+        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         .setEnableDecoderFallback(true)
+
+    init {
+        // Diagnóstico: confirma si el respaldo FFmpeg quedó disponible.
+        try {
+            val available = androidx.media3.decoder.ffmpeg.FfmpegLibrary.isAvailable()
+            Log.i("PlayerManager", "FFmpeg audio decoder available=$available")
+        } catch (_: Throwable) {
+            Log.i("PlayerManager", "FFmpeg audio decoder not bundled")
+        }
+    }
 
     val player: ExoPlayer = ExoPlayer.Builder(appContext, renderersFactory)
         .setTrackSelector(trackSelector)

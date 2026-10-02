@@ -33,7 +33,28 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
           SDKMGR=$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager
           yes | $SDKMGR --licenses > /dev/null
-          $SDKMGR "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          $SDKMGR "platforms;android-35" "build-tools;35.0.0" "platform-tools" "ndk;27.1.12297006" "cmake;3.22.1"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006" >> $GITHUB_ENV
+
+      # FFmpeg LGPL 2.1+ (--disable-gpl --disable-nonfree) para el respaldo de
+      # audio del módulo :decoder_ffmpeg. Se compila desde el fuente oficial.
+      - name: Build FFmpeg (LGPL) for ARM
+        run: |
+          set -e
+          MOD=$PWD/decoder_ffmpeg/src/main
+          git clone --depth 1 -b release/6.0 https://git.ffmpeg.org/ffmpeg.git "$MOD/jni/ffmpeg"
+          HOST=$(uname -s | tr '[:upper:]' '[:lower:]')-x86_64
+          chmod +x "$MOD/jni/build_ffmpeg.sh"
+          "$MOD/jni/build_ffmpeg.sh" "$MOD" "$ANDROID_NDK_HOME" "$HOST" 26 \
+            vorbis opus flac alac pcm_mulaw pcm_alaw mp3 aac ac3 eac3 dca mlp truehd
+          echo "FFmpeg compilado:"
+          find "$MOD/jni/ffmpeg/android-libs" -name "*.a" | head -8
+
+      - name: Upload FFmpeg libs artifact (LGPL §6)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-lgpl-libs
+          path: decoder_ffmpeg/src/main/jni/ffmpeg/android-libs
 
       - name: Build debug APK
         env:

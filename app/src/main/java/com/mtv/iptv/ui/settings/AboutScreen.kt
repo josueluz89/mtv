@@ -48,7 +48,39 @@ fun AboutScreen(onBack: () -> Unit) {
                     onClick = null,
                 )
                 Spacer(Modifier.height(24.dp))
+                Text(
+                    "Decodificador de audio FFmpeg",
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Esta app incluye FFmpeg compilado bajo la licencia LGPL 2.1+ " +
+                        "(--disable-gpl --disable-nonfree), usado solo como " +
+                        "decodificador de audio de respaldo. Los scripts exactos " +
+                        "de compilación están publicados en el repositorio del " +
+                        "proyecto (módulo decoder_ffmpeg).",
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Versión FFmpeg: " + ffmpegVersion(),
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(24.dp))
             }
         }
+    }
+}
+
+/** Versión del FFmpeg compilado, o "no incluido" si el respaldo no se empaquetó. */
+private fun ffmpegVersion(): String {
+    return try {
+        androidx.media3.decoder.ffmpeg.FfmpegLibrary.getVersion().orEmpty()
+            .ifBlank { "no incluido en esta compilación" }
+    } catch (_: Throwable) {
+        "no incluido en esta compilación"
     }
 }

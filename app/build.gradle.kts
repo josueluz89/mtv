@@ -29,8 +29,13 @@ android {
         applicationId = "com.mtv.iptv"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "1.6.0"
+        versionCode = 14
+        versionName = "1.7.0"
+
+        // FFmpeg solo se compila para ARM (teléfonos, Android TV, Firestick).
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
 
         // Key inyectada como BuildConfig; vacía si no está configurada (la app lo tolera).
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
@@ -97,6 +102,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:1.9.0")
     implementation("androidx.media3:media3-exoplayer-dash:1.9.0")
     implementation("androidx.media3:media3-ui:1.9.0")
+    // Decodificador de audio FFmpeg (LGPL) como respaldo — módulo vendored.
+    implementation(project(":decoder_ffmpeg"))
 
     // Red
     implementation("com.squareup.retrofit2:retrofit:2.11.0")

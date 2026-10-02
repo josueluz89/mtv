@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "MTV"
 include(":app")
+include(":decoder_ffmpeg")
