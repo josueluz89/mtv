@@ -3,9 +3,11 @@ package com.mtv.iptv.ui.tv
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +29,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -63,13 +66,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.tv.foundation.ExperimentalTvFoundationApi
@@ -80,6 +86,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.mtv.iptv.data.local.db.FavoriteEntity
+import com.mtv.iptv.data.local.db.PlaybackEntity
 import com.mtv.iptv.data.remote.tmdb.TitleCleaner
 import com.mtv.iptv.data.remote.tmdb.TmdbCastMember
 import com.mtv.iptv.data.remote.tmdb.TmdbClient
@@ -112,6 +119,7 @@ import com.mtv.iptv.ui.mobile.SettingsContent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -130,6 +138,31 @@ private val TvRatingBlue = Color(0xFF1E88E5)
 fun TvApp() {
     MtvUiTheme {
         val navController = rememberNavController()
+        // Abrir el último canal: se dispara al llegar a la pantalla principal
+        // con sesión activa (tras el login), si la opción está habilitada y
+        // hay un último canal guardado ("<streamId>|<nombre>").
+        val context = LocalContext.current
+        val container = LocalAppContainer.current
+        val backStackEntry by navController.currentBackStackEntryAsState()
+        var lastChannelOpened by remember { mutableStateOf(false) }
+        LaunchedEffect(backStackEntry?.destination?.route) {
+            if (lastChannelOpened) return@LaunchedEffect
+            if (backStackEntry?.destination?.route?.startsWith("tv_main/") != true) return@LaunchedEffect
+            try {
+                val prefs = container.userPrefs
+                if (!prefs.openLastChannel.first()) return@LaunchedEffect
+                val repo = container.xtreamRepository
+                if (repo.session == null) return@LaunchedEffect
+                val last = prefs.lastLiveChannel.first()
+                val id = last.substringBefore("|").toIntOrNull()
+                if (last.isNotBlank() && id != null) {
+                    lastChannelOpened = true
+                    val name = last.substringAfter("|", "").ifBlank { "Canal $id" }
+                    ExternalPlayer.play(context, container, repo.liveUrl(id), name, "live:$id", "")
+                }
+            } catch (_: Exception) {
+            }
+        }
         NavHost(navController = navController, startDestination = "tv_servers") {
             composable("tv_servers") {
                 TvServersScreen(
@@ -153,25 +186,37 @@ fun TvApp() {
                 )
             }
             composable(
-                "tv_main/movies/vod/{streamId}",
-                arguments = listOf(navArgument("streamId") { type = NavType.IntType }),
+                "tv_main/movies/vod/{streamId}?pos={pos}&total={total}",
+                arguments = listOf(
+                    navArgument("streamId") { type = NavType.IntType },
+                    navArgument("pos") { type = NavType.IntType; defaultValue = -1 },
+                    navArgument("total") { type = NavType.IntType; defaultValue = -1 },
+                ),
             ) { entry ->
                 TvMainScreen(
                     section = "movies",
                     vodId = entry.arguments?.getInt("streamId"),
+                    vodPos = entry.arguments?.getInt("pos") ?: -1,
+                    vodTotal = entry.arguments?.getInt("total") ?: -1,
                     seriesId = null,
                     personId = null,
                     navController = navController,
                 )
             }
             composable(
-                "tv_main/series/series/{seriesId}",
-                arguments = listOf(navArgument("seriesId") { type = NavType.IntType }),
+                "tv_main/series/series/{seriesId}?pos={pos}&total={total}",
+                arguments = listOf(
+                    navArgument("seriesId") { type = NavType.IntType },
+                    navArgument("pos") { type = NavType.IntType; defaultValue = -1 },
+                    navArgument("total") { type = NavType.IntType; defaultValue = -1 },
+                ),
             ) { entry ->
                 TvMainScreen(
                     section = "series",
                     vodId = null,
                     seriesId = entry.arguments?.getInt("seriesId"),
+                    seriesPos = entry.arguments?.getInt("pos") ?: -1,
+                    seriesTotal = entry.arguments?.getInt("total") ?: -1,
                     personId = null,
                     navController = navController,
                 )
@@ -225,6 +270,8 @@ private val tvRailItems = listOf(
     TvRailItem("tv", "TV", Icons.Default.Tv),
     TvRailItem("movies", "Películas", Icons.Default.Movie),
     TvRailItem("series", "Shows", Icons.Default.LiveTv),
+    TvRailItem("favorites", "Mi lista", Icons.Default.Favorite),
+    TvRailItem("history", "Historial", Icons.Default.History),
     TvRailItem("downloads", "Descargas", Icons.Default.Download),
     TvRailItem("settings", "Ajustes", Icons.Default.Settings),
 )
@@ -239,6 +286,10 @@ fun TvMainScreen(
     seriesId: Int?,
     personId: Int?,
     navController: NavController,
+    vodPos: Int = -1,
+    vodTotal: Int = -1,
+    seriesPos: Int = -1,
+    seriesTotal: Int = -1,
 ) {
     Row(Modifier.fillMaxSize().background(MtvBg)) {
         TvIconRail(
@@ -257,23 +308,42 @@ fun TvMainScreen(
             "movies" -> TvMoviesMain(
                 vodId = vodId,
                 personId = personId,
-                onVod = { navController.navigate("tv_main/movies/vod/$it") },
-                onSeries = { navController.navigate("tv_main/series/series/$it") },
+                vodPos = vodPos,
+                vodTotal = vodTotal,
+                onVod = { id, pos, total -> navController.navigate("tv_main/movies/vod/$id?pos=$pos&total=$total") },
+                onSeries = { navController.navigate("tv_main/series/series/$it?pos=-1&total=-1") },
                 onPerson = { navController.navigate("tv_main/movies/person/$it") },
             )
             "series" -> TvSeriesMain(
                 seriesId = seriesId,
                 personId = personId,
-                onSeries = { navController.navigate("tv_main/series/series/$it") },
-                onVod = { navController.navigate("tv_main/movies/vod/$it") },
+                seriesPos = seriesPos,
+                seriesTotal = seriesTotal,
+                onSeries = { id, pos, total -> navController.navigate("tv_main/series/series/$id?pos=$pos&total=$total") },
+                onVod = { navController.navigate("tv_main/movies/vod/$it?pos=-1&total=-1") },
                 onPerson = { navController.navigate("tv_main/series/person/$it") },
             )
             "search" -> Box(Modifier.weight(1f).fillMaxHeight()) {
                 TvSearchScreen(
                     onBack = {},
-                    onVod = { navController.navigate("tv_main/movies/vod/$it") },
-                    onSeries = { navController.navigate("tv_main/series/series/$it") },
+                    onVod = { navController.navigate("tv_main/movies/vod/$it?pos=-1&total=-1") },
+                    onSeries = { navController.navigate("tv_main/series/series/$it?pos=-1&total=-1") },
                 )
+            }
+            "favorites" -> Box(Modifier.weight(1f).fillMaxHeight()) {
+                TvFavoritesScreen(
+                    onVod = { navController.navigate("tv_main/movies/vod/$it?pos=-1&total=-1") },
+                    onSeries = { navController.navigate("tv_main/series/series/$it?pos=-1&total=-1") },
+                    onLiveGroup = {
+                        navController.navigate("tv_main/tv") {
+                            popUpTo("tv_main/$section") { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    },
+                )
+            }
+            "history" -> Box(Modifier.weight(1f).fillMaxHeight()) {
+                TvHistoryScreen()
             }
             "downloads" -> Box(Modifier.weight(1f).fillMaxHeight()) {
                 TvDownloadsScreen(onBack = {})
@@ -330,7 +400,10 @@ fun TvIconRail(
     ) {
         Text(
             "MTV",
-            style = MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.headlineSmall.copy(
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 3.sp,
+            ),
             color = MtvRed,
             maxLines = 1,
             overflow = TextOverflow.Clip,
@@ -738,6 +811,219 @@ private fun TvEpgRow(
     }
 }
 
+// ---------------- Ordenación de catálogos (Películas / Series) ----------------
+
+private val tvSortModes = listOf(
+    "lista" to "Por el orden de la lista",
+    "nombre" to "Por nombre",
+    "rating" to "Por calificación",
+    "fecha" to "Por fecha de agregado",
+)
+
+private fun sortModeLabel(mode: String): String =
+    tvSortModes.firstOrNull { it.first == mode }?.second ?: mode
+
+private fun sortVodItems(items: List<XtreamVodStream>, mode: String): List<XtreamVodStream> = when (mode) {
+    "nombre" -> items.sortedBy { it.name.lowercase() }
+    "rating" -> items.sortedByDescending { it.rating.toDoubleOrNull() ?: 0.0 }
+    // `added` es String numérico (timestamp).
+    "fecha" -> items.sortedByDescending { it.added.toLongOrNull() ?: 0L }
+    else -> items // "lista": orden del proveedor
+}
+
+private fun sortSeriesItems(items: List<XtreamSeries>, mode: String): List<XtreamSeries> = when (mode) {
+    "nombre" -> items.sortedBy { it.name.lowercase() }
+    "rating" -> items.sortedByDescending { it.rating.toDoubleOrNull() ?: 0.0 }
+    // XtreamSeries SÍ trae `added` (String numérico): se usa como fecha de agregado.
+    "fecha" -> items.sortedByDescending { it.added.toLongOrNull() ?: 0L }
+    else -> items // "lista": orden del proveedor
+}
+
+/** Póster normalizado para la vista agrupada por categorías. */
+private data class TvPosterData(
+    val key: Any,
+    val title: String,
+    val imageUrl: String?,
+    val rating: Double?,
+    val onClick: () -> Unit,
+)
+
+/**
+ * Vista agrupada por categorías (solo "Todas"): stickyHeader por categoría
+ * y filas de 6 pósters.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun TvGroupedPosters(
+    groups: List<Pair<String, List<TvPosterData>>>,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.background(MtvBg),
+        contentPadding = PaddingValues(24.dp),
+        verticalArrangement = Arrangement.spacedBy(22.dp),
+    ) {
+        groups.forEach { (header, posters) ->
+            stickyHeader {
+                Text(
+                    header,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MtvOnBg,
+                    modifier = Modifier.fillMaxWidth().background(MtvBg).padding(vertical = 8.dp),
+                )
+            }
+            items(posters.chunked(6), key = { row -> row.joinToString("|") { it.key.toString() } }) { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                    row.forEach { p ->
+                        TvPosterCard(
+                            title = p.title,
+                            imageUrl = p.imageUrl,
+                            rating = p.rating,
+                            onClick = p.onClick,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    repeat(6 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Diálogo de ordenación: radios de modo + interruptor "Agrupar por
+ * categorías". Todo navegable con D-pad; se cierra con Atrás o "Cerrar".
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvSortDialog(
+    currentMode: String,
+    groupByCategory: Boolean,
+    onModeChange: (String) -> Unit,
+    onGroupChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    BackHandler(onBack = onDismiss)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(520.dp)
+                .background(MtvSurface, RoundedCornerShape(12.dp))
+                .padding(28.dp),
+        ) {
+            Column {
+                Text("Ordenar", style = MaterialTheme.typography.headlineSmall, color = MtvOnBg)
+                Spacer(Modifier.height(16.dp))
+                tvSortModes.forEach { (key, label) ->
+                    TvSortRadioRow(
+                        selected = key == currentMode,
+                        label = label,
+                        onClick = { onModeChange(key) },
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                TvSortSwitchRow(
+                    checked = groupByCategory,
+                    label = "Agrupar por categorías",
+                    onToggle = { onGroupChange(!groupByCategory) },
+                )
+                Spacer(Modifier.height(20.dp))
+                Button(onClick = onDismiss) { Text("Cerrar") }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvSortRadioRow(
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = onClick,
+            )
+            .background(
+                if (focused) MtvSurfaceVariant else Color.Transparent,
+                RoundedCornerShape(8.dp),
+            )
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .border(2.dp, if (selected) MtvRed else MtvOnVariant, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                Box(Modifier.size(12.dp).background(MtvRed, CircleShape))
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(label, style = MaterialTheme.typography.titleMedium, color = MtvOnBg)
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvSortSwitchRow(
+    checked: Boolean,
+    label: String,
+    onToggle: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = onToggle,
+            )
+            .background(
+                if (focused) MtvSurfaceVariant else Color.Transparent,
+                RoundedCornerShape(8.dp),
+            )
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.titleMedium,
+            color = MtvOnBg,
+            modifier = Modifier.weight(1f),
+        )
+        Box(
+            modifier = Modifier
+                .width(52.dp)
+                .height(30.dp)
+                .background(
+                    if (checked) MtvRed else MtvSurfaceVariant,
+                    RoundedCornerShape(15.dp),
+                )
+                .padding(3.dp),
+            contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
+        ) {
+            Box(Modifier.size(24.dp).background(Color.White, CircleShape))
+        }
+    }
+}
+
 // ---------------- Secciones Películas / Series ----------------
 
 /**
@@ -745,23 +1031,31 @@ private fun TvEpgRow(
  * ("Todas las películas" + categorías con conteo), grilla de pósters
  * con rating a la derecha.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun TvMoviesMain(
     vodId: Int?,
     personId: Int?,
-    onVod: (Int) -> Unit,
+    onVod: (id: Int, pos: Int, total: Int) -> Unit,
     onSeries: (Int) -> Unit,
     onPerson: (Int) -> Unit,
+    vodPos: Int = -1,
+    vodTotal: Int = -1,
 ) {
     val container = LocalAppContainer.current
     val repo = container.xtreamRepository
+    val scope = rememberCoroutineScope()
 
     var folders by remember { mutableStateOf<List<Pair<XtreamCategory, Int>>>(emptyList()) }
     var selectedId by remember { mutableStateOf<String?>(null) } // null = todas
     var items by remember { mutableStateOf<List<XtreamVodStream>>(emptyList()) }
     // Se recarga cuando el refresco automático invalida el caché.
     val refreshTick by container.catalogRefreshTick.collectAsState()
+
+    // Ordenación (prefs vodSortMode / groupByCategory).
+    val sortMode by container.userPrefs.vodSortMode.collectAsState(initial = "lista")
+    val groupByCategory by container.userPrefs.groupByCategory.collectAsState(initial = false)
+    var showSort by remember { mutableStateOf(false) }
 
     LaunchedEffect(refreshTick) {
         try {
@@ -785,10 +1079,30 @@ fun TvMoviesMain(
         }
     }
 
+    val sorted = remember(items, sortMode) { sortVodItems(items, sortMode) }
+    // Vista agrupada (solo "Todas"): grupos en el orden de las carpetas.
+    val grouped = remember(sorted, folders) {
+        val byCat = sorted.groupBy { it.categoryId }
+        folders.mapNotNull { (cat, _) ->
+            val list = byCat[cat.categoryId].orEmpty()
+            if (list.isNotEmpty()) {
+                cat.categoryName to list.map { v ->
+                    TvPosterData(
+                        key = v.streamId,
+                        title = v.name,
+                        imageUrl = v.streamIcon.ifBlank { null },
+                        rating = v.rating.toDoubleOrNull()?.takeIf { it > 0 },
+                        onClick = { onVod(v.streamId, sorted.indexOf(v), sorted.size) },
+                    )
+                }
+            } else null
+        }
+    }
+
     if (personId != null) {
         TvPersonDetail(
             personId = personId,
-            onVod = onVod,
+            onVod = { id -> onVod(id, -1, -1) },
             onSeries = onSeries,
         )
         return
@@ -796,8 +1110,10 @@ fun TvMoviesMain(
     if (vodId != null) {
         TvVodDetail(
             streamId = vodId,
+            pos = vodPos,
+            total = vodTotal,
             folderName = folders.firstOrNull { it.first.categoryId == selectedId }?.first?.categoryName,
-            onVod = onVod,
+            onVod = { id -> onVod(id, -1, -1) },
             onPerson = onPerson,
         )
         return
@@ -816,20 +1132,53 @@ fun TvMoviesMain(
             onSelect = { e -> selectedId = e.id.takeIf { it != "__all__" } },
             modifier = Modifier.width(300.dp).fillMaxHeight(),
         )
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(6),
-            modifier = Modifier.weight(1f).fillMaxHeight().background(MtvBg),
-            contentPadding = PaddingValues(24.dp),
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
-        ) {
-            items(items, key = { it.streamId }) { v ->
-                TvPosterCard(
-                    title = v.name,
-                    imageUrl = v.streamIcon.ifBlank { null },
-                    rating = v.rating.toDoubleOrNull()?.takeIf { it > 0 },
-                    onClick = { onVod(v.streamId) },
-                    modifier = Modifier.fillMaxWidth(),
+        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            Column(modifier = Modifier.fillMaxSize().background(MtvBg)) {
+                // Fila de ordenación sobre la grilla.
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Orden: ${sortModeLabel(sortMode)}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MtvOnVariant,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Button(onClick = { showSort = true }) { Text("Ordenar") }
+                }
+                if (groupByCategory && selectedId == null) {
+                    TvGroupedPosters(
+                        groups = grouped,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(6),
+                        modifier = Modifier.weight(1f).fillMaxHeight().background(MtvBg),
+                        contentPadding = PaddingValues(24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(22.dp),
+                    ) {
+                        itemsIndexed(sorted, key = { _, v -> v.streamId }) { idx, v ->
+                            TvPosterCard(
+                                title = v.name,
+                                imageUrl = v.streamIcon.ifBlank { null },
+                                rating = v.rating.toDoubleOrNull()?.takeIf { it > 0 },
+                                onClick = { onVod(v.streamId, idx, sorted.size) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+            }
+            if (showSort) {
+                TvSortDialog(
+                    currentMode = sortMode,
+                    groupByCategory = groupByCategory,
+                    onModeChange = { scope.launch { container.userPrefs.setVodSortMode(it) } },
+                    onGroupChange = { scope.launch { container.userPrefs.setGroupByCategory(it) } },
+                    onDismiss = { showSort = false },
                 )
             }
         }
@@ -840,23 +1189,31 @@ fun TvMoviesMain(
  * Sección Series estilo TiviMate: carpetas a la izquierda
  * ("Todos los shows" + categorías con conteo), grilla de pósters a la derecha.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun TvSeriesMain(
     seriesId: Int?,
     personId: Int?,
-    onSeries: (Int) -> Unit,
+    onSeries: (id: Int, pos: Int, total: Int) -> Unit,
     onVod: (Int) -> Unit,
     onPerson: (Int) -> Unit,
+    seriesPos: Int = -1,
+    seriesTotal: Int = -1,
 ) {
     val container = LocalAppContainer.current
     val repo = container.xtreamRepository
+    val scope = rememberCoroutineScope()
 
     var folders by remember { mutableStateOf<List<Pair<XtreamCategory, Int>>>(emptyList()) }
     var selectedId by remember { mutableStateOf<String?>(null) } // null = todas
     var items by remember { mutableStateOf<List<XtreamSeries>>(emptyList()) }
     // Se recarga cuando el refresco automático invalida el caché.
     val refreshTick by container.catalogRefreshTick.collectAsState()
+
+    // Ordenación (prefs seriesSortMode / groupByCategory).
+    val sortMode by container.userPrefs.seriesSortMode.collectAsState(initial = "lista")
+    val groupByCategory by container.userPrefs.groupByCategory.collectAsState(initial = false)
+    var showSort by remember { mutableStateOf(false) }
 
     LaunchedEffect(refreshTick) {
         try {
@@ -880,19 +1237,41 @@ fun TvSeriesMain(
         }
     }
 
+    val sorted = remember(items, sortMode) { sortSeriesItems(items, sortMode) }
+    // Vista agrupada (solo "Todas"): grupos en el orden de las carpetas.
+    val grouped = remember(sorted, folders) {
+        val byCat = sorted.groupBy { it.categoryId }
+        folders.mapNotNull { (cat, _) ->
+            val list = byCat[cat.categoryId].orEmpty()
+            if (list.isNotEmpty()) {
+                cat.categoryName to list.map { s ->
+                    TvPosterData(
+                        key = s.seriesId,
+                        title = s.name,
+                        imageUrl = s.cover.ifBlank { null },
+                        rating = s.rating.toDoubleOrNull()?.takeIf { it > 0 },
+                        onClick = { onSeries(s.seriesId, sorted.indexOf(s), sorted.size) },
+                    )
+                }
+            } else null
+        }
+    }
+
     if (personId != null) {
         TvPersonDetail(
             personId = personId,
             onVod = onVod,
-            onSeries = onSeries,
+            onSeries = { id -> onSeries(id, -1, -1) },
         )
         return
     }
     if (seriesId != null) {
         TvSeriesDetail(
             seriesId = seriesId,
+            pos = seriesPos,
+            total = seriesTotal,
             folderName = folders.firstOrNull { it.first.categoryId == selectedId }?.first?.categoryName,
-            onSeries = onSeries,
+            onSeries = { id -> onSeries(id, -1, -1) },
             onPerson = onPerson,
         )
         return
@@ -911,20 +1290,53 @@ fun TvSeriesMain(
             onSelect = { e -> selectedId = e.id.takeIf { it != "__all__" } },
             modifier = Modifier.width(300.dp).fillMaxHeight(),
         )
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(6),
-            modifier = Modifier.weight(1f).fillMaxHeight().background(MtvBg),
-            contentPadding = PaddingValues(24.dp),
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
-        ) {
-            items(items, key = { it.seriesId }) { s ->
-                TvPosterCard(
-                    title = s.name,
-                    imageUrl = s.cover.ifBlank { null },
-                    rating = s.rating.toDoubleOrNull()?.takeIf { it > 0 },
-                    onClick = { onSeries(s.seriesId) },
-                    modifier = Modifier.fillMaxWidth(),
+        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            Column(modifier = Modifier.fillMaxSize().background(MtvBg)) {
+                // Fila de ordenación sobre la grilla.
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Orden: ${sortModeLabel(sortMode)}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MtvOnVariant,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Button(onClick = { showSort = true }) { Text("Ordenar") }
+                }
+                if (groupByCategory && selectedId == null) {
+                    TvGroupedPosters(
+                        groups = grouped,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(6),
+                        modifier = Modifier.weight(1f).fillMaxHeight().background(MtvBg),
+                        contentPadding = PaddingValues(24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(22.dp),
+                    ) {
+                        itemsIndexed(sorted, key = { _, s -> s.seriesId }) { idx, s ->
+                            TvPosterCard(
+                                title = s.name,
+                                imageUrl = s.cover.ifBlank { null },
+                                rating = s.rating.toDoubleOrNull()?.takeIf { it > 0 },
+                                onClick = { onSeries(s.seriesId, idx, sorted.size) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+            }
+            if (showSort) {
+                TvSortDialog(
+                    currentMode = sortMode,
+                    groupByCategory = groupByCategory,
+                    onModeChange = { scope.launch { container.userPrefs.setSeriesSortMode(it) } },
+                    onGroupChange = { scope.launch { container.userPrefs.setGroupByCategory(it) } },
+                    onDismiss = { showSort = false },
                 )
             }
         }
@@ -1092,6 +1504,8 @@ private fun TvDetailAction(
 @Composable
 fun TvVodDetail(
     streamId: Int,
+    pos: Int = -1,
+    total: Int = -1,
     folderName: String?,
     onVod: (Int) -> Unit,
     onPerson: (Int) -> Unit,
@@ -1105,9 +1519,15 @@ fun TvVodDetail(
     var info by remember { mutableStateOf<VodInfoResponse?>(null) }
     var tmdb by remember { mutableStateOf<TmdbMedia?>(null) }
     var isFav by remember { mutableStateOf(false) }
+    var resumeEntry by remember { mutableStateOf<PlaybackEntity?>(null) }
     val session = repo.session
 
     LaunchedEffect(streamId) {
+        resumeEntry = try {
+            container.playbackRepository.get("vod:$streamId")
+        } catch (e: Exception) {
+            null
+        }
         try {
             val vi = repo.getVodInfo(streamId)
             info = vi
@@ -1152,6 +1572,25 @@ fun TvVodDetail(
             subTmdbId = tmdb?.tmdbId,
         )
     }
+
+    /** Reproduce desde el inicio: borra la posición guardada antes de reproducir. */
+    fun playFromStart() {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    container.playbackRepository.delete("vod:$streamId")
+                }
+            } catch (_: Exception) {
+            }
+            resumeEntry = null
+            play()
+        }
+    }
+
+    // Misma condición que usa PlayerActivity para auto-reanudar.
+    val canResume = resumeEntry?.let { r ->
+        r.positionMs > 10_000 && (r.durationMs <= 0 || r.positionMs < r.durationMs - 15_000)
+    } == true
 
     fun toggleFavorite() {
         val v = vi ?: return
@@ -1203,6 +1642,22 @@ fun TvVodDetail(
                         ),
                     ),
                 )
+                // Contador "1 / N" arriba a la derecha (solo si viene de una grilla).
+                if (pos >= 0 && total > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 20.dp, end = 28.dp)
+                            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            "${pos + 1} / $total",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                        )
+                    }
+                }
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -1276,7 +1731,12 @@ fun TvVodDetail(
             Row(
                 modifier = Modifier.padding(horizontal = 36.dp, vertical = 16.dp),
             ) {
-                TvDetailAction(label = "Reproducir", icon = Icons.Default.PlayArrow, primary = true, onClick = { play() })
+                if (canResume) {
+                    TvDetailAction(label = "Reanudar", icon = Icons.Default.PlayArrow, primary = true, onClick = { play() })
+                    TvDetailAction(label = "Reproducir desde el inicio", icon = Icons.Default.PlayArrow, onClick = { playFromStart() })
+                } else {
+                    TvDetailAction(label = "Reproducir", icon = Icons.Default.PlayArrow, primary = true, onClick = { play() })
+                }
                 if (activity != null && vi != null) {
                     TvDetailAction(
                         label = "Abrir en reproductor externo",
@@ -1344,6 +1804,8 @@ fun TvVodDetail(
 @Composable
 fun TvSeriesDetail(
     seriesId: Int,
+    pos: Int = -1,
+    total: Int = -1,
     folderName: String?,
     onSeries: (Int) -> Unit,
     onPerson: (Int) -> Unit,
@@ -1358,9 +1820,15 @@ fun TvSeriesDetail(
     var tmdb by remember { mutableStateOf<TmdbMedia?>(null) }
     var isFav by remember { mutableStateOf(false) }
     var selectedSeason by remember { mutableStateOf<String?>(null) }
+    var resumeEntry by remember { mutableStateOf<PlaybackEntity?>(null) }
     val session = repo.session
 
     LaunchedEffect(seriesId) {
+        resumeEntry = try {
+            container.playbackRepository.get("seriesresume:$seriesId")
+        } catch (e: Exception) {
+            null
+        }
         try {
             val si = repo.getSeriesInfo(seriesId)
             info = si
@@ -1396,12 +1864,15 @@ fun TvSeriesDetail(
     ).joinToString(" · ")
     val episodes = selectedSeason?.let { si?.episodes?.get(it).orEmpty() }
         ?.sortedBy { it.episodeNum }.orEmpty()
+    val firstEp = seasons.firstOrNull()
+        ?.let { si?.episodes?.get(it)?.minByOrNull { e -> e.episodeNum } }
 
     fun playEpisode(ep: XtreamEpisode, season: String?) {
         val epTitle = ep.title.ifBlank { "Episodio ${ep.episodeNum}" }
+        val epUrl = repo.episodeUrl(ep.id, ep.containerExtension)
         ExternalPlayer.play(
             context, container,
-            repo.episodeUrl(ep.id, ep.containerExtension),
+            epUrl,
             "$title — $epTitle",
             "ep:${ep.id}",
             ep.info.movieImage.ifBlank { tmdb?.posterUrl ?: si?.info?.cover.orEmpty() },
@@ -1409,6 +1880,57 @@ fun TvSeriesDetail(
             subSeason = season?.toIntOrNull(),
             subEpisode = ep.episodeNum,
         )
+        // Punto de continuación de la serie ("seriesresume:<seriesId>").
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    container.playbackRepository.save(
+                        PlaybackEntity(
+                            mediaKey = "seriesresume:$seriesId",
+                            name = title,
+                            imageUrl = tmdb?.posterUrl ?: si?.info?.cover.orEmpty(),
+                            url = epUrl,
+                            positionMs = 0,
+                            durationMs = 0,
+                            updatedAt = System.currentTimeMillis(),
+                        ),
+                    )
+                }
+                resumeEntry = container.playbackRepository.get("seriesresume:$seriesId")
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /** Reanuda el último episodio visto (PlayerActivity reanuda la posición guardada). */
+    fun resumeSeries() {
+        val entry = resumeEntry ?: return
+        if (entry.url.isBlank()) return
+        val epId = entry.url.substringAfterLast("/").substringBefore(".")
+        if (epId.isBlank()) return
+        ExternalPlayer.play(
+            context, container,
+            entry.url,
+            entry.name.ifBlank { title },
+            "ep:$epId",
+            entry.imageUrl,
+        )
+    }
+
+    /** Reproduce la serie desde el primer episodio y desde el inicio. */
+    fun playSeriesFromStart() {
+        val ep = firstEp ?: return
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    container.playbackRepository.delete("seriesresume:$seriesId")
+                    container.playbackRepository.delete("ep:${ep.id}")
+                }
+            } catch (_: Exception) {
+            }
+            resumeEntry = null
+            playEpisode(ep, seasons.firstOrNull())
+        }
     }
 
     fun toggleFavorite() {
@@ -1461,6 +1983,22 @@ fun TvSeriesDetail(
                         ),
                     ),
                 )
+                // Contador "1 / N" arriba a la derecha (solo si viene de una grilla).
+                if (pos >= 0 && total > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 20.dp, end = 28.dp)
+                            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            "${pos + 1} / $total",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                        )
+                    }
+                }
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -1534,8 +2072,20 @@ fun TvSeriesDetail(
             Row(
                 modifier = Modifier.padding(horizontal = 36.dp, vertical = 16.dp),
             ) {
-                val firstEp = seasons.firstOrNull()?.let { si?.episodes?.get(it)?.minByOrNull { e -> e.episodeNum } }
-                if (firstEp != null) {
+                val seriesResume = resumeEntry?.takeIf { it.url.isNotBlank() }
+                if (seriesResume != null) {
+                    TvDetailAction(
+                        label = "Reanudar",
+                        icon = Icons.Default.PlayArrow,
+                        primary = true,
+                        onClick = { resumeSeries() },
+                    )
+                    TvDetailAction(
+                        label = "Reproducir desde el inicio",
+                        icon = Icons.Default.PlayArrow,
+                        onClick = { playSeriesFromStart() },
+                    )
+                } else if (firstEp != null) {
                     TvDetailAction(
                         label = "Reproducir",
                         icon = Icons.Default.PlayArrow,
