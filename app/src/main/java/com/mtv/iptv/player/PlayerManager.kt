@@ -5,9 +5,11 @@ import android.os.Handler
 import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -23,12 +25,18 @@ import com.mtv.iptv.data.local.prefs.UserPrefs
 import com.mtv.iptv.data.repository.PlaybackRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 
 /**
  * Un solo ExoPlayer para toda la app (HLS/DASH/TS progresivo).
@@ -193,7 +201,10 @@ class PlayerManager(
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(10_000)
             .build()
-            .also { attachSurroundListener(it) }
+            .also {
+                attachSurroundListener(it)
+                attachRecoveryListener(it)
+            }
     }
 
     private var playerActual: ExoPlayer = buildPlayer(BuildConfig.DEFAULT)
@@ -248,7 +259,66 @@ class PlayerManager(
         }
     }
 
-    fun play(url: String, mediaKey: String, title: String, imageUrl: String, startPositionMs: Long = 0) {
+    // ---------------- Recuperación automática de reproducción ----------------
+    //
+    // Causa raíz del "a veces carga, a veces no" en VOD: antes cualquier fallo
+    // al cargar el stream (timeout, 403 por sesión vencida o límite de
+    // conexiones del panel, 404, corte de red) dejaba al player en STATE_IDLE
+    // con pantalla negra silenciosa — sin reintentos, sin re-login y sin
+    // mensaje. Ahora el player se observa: los fallos transitorios reintentan
+    // con backoff, el 401/403 dispara un re-login silencioso con URL fresca
+    // (una vez por item) y, si todo falla, la UI recibe un mensaje claro en
+    // [playbackError] en vez de nada.
+    //
+    // Contrato para la UI (overlay):
+    // - [isRecovering] = true → mostrar "Reconectando…" (con
+    //   [recoverAttempt] como "intento N de 3"; 0 = revalidando sesión).
+    // - [playbackError] != null → mostrar el mensaje con botones "Reintentar"
+    //   ([retryNow]) y "Cerrar".
+    // [play] y [stop] siempre dejan este estado limpio.
+
+    /** Hay un reintento / re-login automático en curso (visible para la UI). */
+    val isRecovering = MutableStateFlow(false)
+
+    /** Nº del intento de reintento en curso (1-based; 0 = revalidando sesión). */
+    val recoverAttempt = MutableStateFlow(0)
+
+    /** Mensaje final en español cuando ya no hay más reintentos (null = sin error). */
+    val playbackError = MutableStateFlow<String?>(null)
+
+    private var recoveryJob: Job? = null
+    private var autoAttemptsLeft = MAX_AUTO_RETRIES
+    private var authRefreshDone = false
+
+    /**
+     * Generación del item actual: se incrementa en [play] y [stop] para que un
+     * reintento/re-login tardío nunca toque un item que ya no está vigente.
+     */
+    private var playGeneration = 0
+
+    /**
+     * La Activity lo instala por reproducción: revalida la sesión en silencio
+     * y devuelve una URL FRESCA del mismo contenido (o null si no se pudo).
+     * Solo se invoca ante un 401/403, una vez por item.
+     */
+    private var urlRefresher: (suspend () -> String?)? = null
+
+    fun play(
+        url: String,
+        mediaKey: String,
+        title: String,
+        imageUrl: String,
+        startPositionMs: Long = 0,
+        urlRefresher: (suspend () -> String?)? = null,
+    ) {
+        // Un play nuevo siempre empieza limpio: cancela la recuperación del
+        // item anterior en vez de apilarla.
+        playGeneration++
+        cancelRecovery()
+        autoAttemptsLeft = MAX_AUTO_RETRIES
+        authRefreshDone = false
+        playbackError.value = null
+        this.urlRefresher = urlRefresher
         // Aplica decodificadores/buffer vigentes (reconstruye solo si cambiaron).
         ensurePlayerConfig()
         if (mediaKey != currentMediaKey) {
@@ -258,6 +328,11 @@ class PlayerManager(
         currentMediaKey = mediaKey
         currentTitle = title
         currentImageUrl = imageUrl
+        loadAndPlay(url, startPositionMs)
+    }
+
+    /** Carga la URL en el player y arranca. La URL queda en [currentUrl]. */
+    private fun loadAndPlay(url: String, startPositionMs: Long) {
         currentUrl = url
         player.setMediaItem(MediaItem.fromUri(url))
         player.prepare()
@@ -265,9 +340,189 @@ class PlayerManager(
         player.playWhenReady = true
     }
 
+    /** Reintento manual desde la UI (botón "Reintentar" del mensaje de error). */
+    fun retryNow() {
+        val url = currentUrl
+        if (url.isBlank() || isRecovering.value) return
+        playGeneration++
+        cancelRecovery()
+        autoAttemptsLeft = MAX_AUTO_RETRIES
+        authRefreshDone = false
+        playbackError.value = null
+        loadAndPlay(url, 0)
+    }
+
     fun stop() {
+        playGeneration++
+        cancelRecovery()
+        playbackError.value = null
         player.stop()
         player.clearMediaItems()
+    }
+
+    /** Cancela el reintento/re-login en curso y limpia los indicadores. */
+    private fun cancelRecovery() {
+        recoveryJob?.cancel()
+        recoveryJob = null
+        isRecovering.value = false
+        recoverAttempt.value = 0
+    }
+
+    /**
+     * Observa los errores del player y los recupera según [PlaybackRecovery]:
+     * transitorios con backoff, 401/403 con re-login silencioso + URL fresca,
+     * y el resto con mensaje final en [playbackError]. Se engancha en cada
+     * construcción del player (ver [buildPlayer]).
+     */
+    private fun attachRecoveryListener(p: ExoPlayer) {
+        p.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                val url = currentUrl
+                if (url.isBlank()) return
+                val kind = classifyPlaybackFailure(toPlaybackFailure(error))
+                Log.w("PlayerManager", "Error de reproducción [$kind]: ${error.message}")
+                when (kind) {
+                    FailureKind.TRANSIENT -> retryTransient(url)
+                    FailureKind.AUTH -> refreshSessionAndRetry()
+                    FailureKind.NOT_FOUND ->
+                        failPermanently("Este título ya no está disponible en el servidor.")
+                    FailureKind.UNSUPPORTED ->
+                        failPermanently("Formato de video no soportado por este reproductor.")
+                    FailureKind.FATAL ->
+                        failPermanently("No se pudo reproducir este video.")
+                }
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    // Arrancó de verdad: se renuevan los intentos y se limpia
+                    // cualquier rastro de la recuperación.
+                    autoAttemptsLeft = MAX_AUTO_RETRIES
+                    if (isRecovering.value || playbackError.value != null) {
+                        isRecovering.value = false
+                        recoverAttempt.value = 0
+                        playbackError.value = null
+                    }
+                }
+            }
+        })
+    }
+
+    /** Reintento con backoff ante fallos transitorios (red, timeout, 5xx). */
+    private fun retryTransient(url: String) {
+        if (autoAttemptsLeft <= 0) {
+            failPermanently("No se pudo cargar el video. Revisa tu conexión e inténtalo de nuevo.")
+            return
+        }
+        autoAttemptsLeft--
+        val attemptNo = MAX_AUTO_RETRIES - autoAttemptsLeft
+        val waitMs = retryDelayMs(attemptNo)
+        Log.i("PlayerManager", "Reintento $attemptNo/$MAX_AUTO_RETRIES en ${waitMs}ms")
+        startRecovery(attemptNo = attemptNo, delayMs = waitMs) {
+            loadAndPlay(url, 0)
+        }
+    }
+
+    /**
+     * Ante 401/403: un solo re-login silencioso por item (vía [urlRefresher],
+     * que devuelve la URL fresca) y reintento inmediato. Si ya se hizo o no
+     * hay refresher instalado, es fallo definitivo (sin bucles).
+     */
+    private fun refreshSessionAndRetry() {
+        val refresher = urlRefresher
+        if (authRefreshDone || refresher == null) {
+            failPermanently("El servidor rechazó la reproducción. Revisa tu sesión en Servidores.")
+            return
+        }
+        authRefreshDone = true
+        Log.i("PlayerManager", "401/403: re-login silencioso y URL fresca")
+        startRecovery(attemptNo = 0) { isStale ->
+            val fresh = withContext(Dispatchers.IO) {
+                try {
+                    refresher()
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            // Si mientras tanto llegó otro play/stop, no tocar nada.
+            if (isStale()) return@startRecovery
+            if (fresh.isNullOrBlank()) {
+                failPermanently("Tu sesión venció. Vuelve a entrar en Servidores.")
+            } else {
+                loadAndPlay(fresh, 0)
+            }
+        }
+    }
+
+    /**
+     * Lanza un paso de recuperación en [recoveryJob] (cancela el anterior):
+     * espera [delayMs], verifica que el item siga vigente y ejecuta [block].
+     * [isStale] también se entrega al bloque para chequeos tras E/S largas.
+     */
+    private fun startRecovery(
+        attemptNo: Int,
+        delayMs: Long = 0,
+        block: suspend (isStale: () -> Boolean) -> Unit,
+    ) {
+        recoveryJob?.cancel()
+        isRecovering.value = true
+        recoverAttempt.value = attemptNo
+        playbackError.value = null
+        val gen = playGeneration
+        val isStale = { gen != playGeneration }
+        recoveryJob = scope.launch {
+            if (delayMs > 0) delay(delayMs)
+            if (isStale()) return@launch
+            block(isStale)
+        }
+    }
+
+    private fun failPermanently(message: String) {
+        cancelRecovery()
+        playbackError.value = message
+        Log.w("PlayerManager", "Reproducción fallida: $message")
+    }
+
+    /**
+     * Normaliza el [PlaybackException] de Media3 a [PlaybackFailure]:
+     * recorre la cadena de causas buscando el código HTTP y errores de E/S.
+     */
+    private fun toPlaybackFailure(error: PlaybackException): PlaybackFailure {
+        var httpCode: Int? = null
+        var ioError = false
+        var cause: Throwable? = error.cause
+        var depth = 0
+        while (cause != null && depth < 10) {
+            when (cause) {
+                is HttpDataSource.InvalidResponseCodeException -> {
+                    // Solo el primer código HTTP de la cadena manda.
+                    if (httpCode == null) httpCode = cause.responseCode
+                    ioError = true
+                }
+                is HttpDataSource.HttpDataSourceException -> ioError = true
+                is SocketTimeoutException,
+                is ConnectException,
+                is UnknownHostException,
+                is SSLException -> ioError = true
+            }
+            cause = cause.cause
+            depth++
+        }
+        // Sin causa HTTP: el propio errorCode dice si fue la red.
+        if (httpCode == null && !ioError) {
+            ioError = error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+        }
+        val unsupported =
+            error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+                error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED ||
+                error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+                error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED
+        return PlaybackFailure(
+            httpCode = httpCode,
+            ioError = ioError,
+            unsupportedFormat = unsupported,
+        )
     }
 
     /** Guarda la posición actual (para "Seguir viendo"). */

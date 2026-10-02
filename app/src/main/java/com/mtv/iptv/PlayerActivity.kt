@@ -24,6 +24,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.mtv.iptv.di.LocalAppContainer
+import com.mtv.iptv.data.remote.xtream.streamExtensionFromUrl
 import com.mtv.iptv.player.ZapChannel
 import com.mtv.iptv.ui.common.MtvUiTheme
 import com.mtv.iptv.ui.player.PlayerScreen
@@ -346,7 +347,26 @@ class PlayerActivity : ComponentActivity() {
                 } else {
                     0L
                 }
-                manager.play(url, mediaKey, title, imageUrl, startAt)
+                manager.play(url, mediaKey, title, imageUrl, startAt) {
+                    // Re-login silencioso + URL fresca: PlayerManager solo lo
+                    // invoca ante un 401/403 del stream, una vez por item.
+                    val repo = container.xtreamRepository
+                    if (!repo.reLogin()) return@play null
+                    try {
+                        val ext = streamExtensionFromUrl(url)
+                        when {
+                            mediaKey.startsWith("live:") ->
+                                repo.liveUrl(mediaKey.removePrefix("live:").toInt())
+                            mediaKey.startsWith("vod:") ->
+                                repo.vodUrl(mediaKey.removePrefix("vod:").toInt(), ext)
+                            mediaKey.startsWith("ep:") ->
+                                repo.episodeUrl(mediaKey.removePrefix("ep:"), ext)
+                            else -> null
+                        }
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
             }
         } else {
             // Rama móvil: la lista de zapping solo se usa en PlayerScreen.

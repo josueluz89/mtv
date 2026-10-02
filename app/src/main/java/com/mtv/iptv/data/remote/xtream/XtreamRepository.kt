@@ -211,6 +211,41 @@ class XtreamRepository(
             else LoginResult.NetworkError(lastError?.message ?: "Sin conexión con el servidor")
         }
 
+    /**
+     * Re-login silencioso con las credenciales de la sesión actual (v1.9.2).
+     *
+     * Lo usa la recuperación de reproducción ante un 401/403 del stream:
+     * revalida contra el MISMO servidor (con fallback de esquema https <->
+     * http) y, si autentica, refresca baseUrl/api de la sesión. A diferencia
+     * de [login], preserva la entidad de servidor (su id de BD, que usan los
+     * favoritos) y NO limpia el catálogo cacheado (esos datos no dependen de
+     * la sesión).
+     *
+     * Devuelve true si la sesión quedó válida. False si no hay sesión, las
+     * credenciales fueron rechazadas (auth=0) o falló la red.
+     */
+    suspend fun reLogin(): Boolean = withContext(Dispatchers.IO) {
+        val s = session ?: return@withContext false
+        val candidates = listOfNotNull(s.server.url, client.alternateScheme(s.server.url)).distinct()
+        for (candidate in candidates) {
+            val api = client.api(candidate)
+            when (attempt(api, s.username, s.password)) {
+                Attempt.Ok -> {
+                    session = s.copy(
+                        baseUrl = client.normalize(candidate).trimEnd('/'),
+                        api = api,
+                    )
+                    eventLog?.invoke("reLogin: OK $candidate")
+                    return@withContext true
+                }
+                // Credenciales muertas: no tiene sentido probar otro esquema.
+                Attempt.Denied -> return@withContext false
+                is Attempt.Failed -> Unit // probar el esquema alterno
+            }
+        }
+        false
+    }
+
     /** Resultado de probar UN servidor oculto (con su fallback de esquema). */
     private sealed interface AutoProbe {
         data class Ok(val api: XtreamApi, val baseUrl: String) : AutoProbe
@@ -594,19 +629,17 @@ class XtreamRepository(
 
     fun liveUrl(streamId: Int): String {
         val s = requireSession()
-        return "${s.baseUrl}/live/${s.username}/${s.password}/$streamId.ts"
+        return buildLiveUrl(s.baseUrl, s.username, s.password, streamId)
     }
 
     fun vodUrl(streamId: Int, containerExtension: String): String {
         val s = requireSession()
-        val ext = containerExtension.ifBlank { "mp4" }
-        return "${s.baseUrl}/movie/${s.username}/${s.password}/$streamId.$ext"
+        return buildVodUrl(s.baseUrl, s.username, s.password, streamId, containerExtension)
     }
 
     fun episodeUrl(episodeId: String, containerExtension: String): String {
         val s = requireSession()
-        val ext = containerExtension.ifBlank { "mp4" }
-        return "${s.baseUrl}/series/${s.username}/${s.password}/$episodeId.$ext"
+        return buildEpisodeUrl(s.baseUrl, s.username, s.password, episodeId, containerExtension)
     }
 
     // ---------------- Buscador ----------------
