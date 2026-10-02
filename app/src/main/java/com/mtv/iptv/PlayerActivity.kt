@@ -7,21 +7,24 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
 import android.util.TypedValue
-import android.view.Gravity
+import android.view.View
 import android.widget.FrameLayout
-import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.player.ZapChannel
+import com.mtv.iptv.ui.common.MtvUiTheme
 import com.mtv.iptv.ui.player.PlayerScreen
 import com.mtv.iptv.ui.theme.MtvTheme
+import com.mtv.iptv.ui.tv.TvPlayerOverlay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -111,9 +114,15 @@ class PlayerActivity : ComponentActivity() {
         val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
 
         if (isTv) {
-            // Rama TV: PlayerView con su controlador (D-pad) dentro de un
-            // FrameLayout con el título del contenido arriba a la izquierda,
-            // semi-transparente, para que se sienta como un reproductor de TV real.
+            // Rama TV: PlayerView con su controlador (D-pad) + overlay Compose
+            // con título y botones de opciones (Audio, Subtítulos, ±10 s).
+            // El overlay se muestra y oculta JUNTO con el controlador, para
+            // que el título no quede fijo para siempre.
+            val subTmdbId = if (intent.hasExtra(EXTRA_SUB_TMDB)) intent.getIntExtra(EXTRA_SUB_TMDB, 0).takeIf { it > 0 } else null
+            val subSeason = if (intent.hasExtra(EXTRA_SUB_SEASON)) intent.getIntExtra(EXTRA_SUB_SEASON, 0).takeIf { it > 0 } else null
+            val subEpisode = if (intent.hasExtra(EXTRA_SUB_EPISODE)) intent.getIntExtra(EXTRA_SUB_EPISODE, 0).takeIf { it > 0 } else null
+            val isLive = mediaKey.startsWith("live:")
+
             val frame = FrameLayout(this).apply {
                 setBackgroundColor(Color.BLACK)
             }
@@ -168,27 +177,37 @@ class PlayerActivity : ComponentActivity() {
                     FrameLayout.LayoutParams.MATCH_PARENT,
                 ),
             )
-            if (title.isNotBlank()) {
-                val density = resources.displayMetrics.density
-                val titleView = TextView(this).apply {
-                    text = title
-                    setTextColor(Color.WHITE)
-                    textSize = 18f
-                    setBackgroundColor(0x99000000.toInt())
-                    val hPad = (16 * density).toInt()
-                    val vPad = (8 * density).toInt()
-                    setPadding(hPad, vPad, hPad, vPad)
+            // Overlay de opciones: visible solo junto con el controlador.
+            val overlayVisible = mutableStateOf(true)
+            val overlayView = ComposeView(this).apply {
+                setContent {
+                    CompositionLocalProvider(LocalAppContainer provides container) {
+                        MtvUiTheme {
+                            TvPlayerOverlay(
+                                title = title,
+                                visible = overlayVisible.value,
+                                isLive = isLive,
+                                manager = manager,
+                                subTmdbId = subTmdbId,
+                                subSeason = subSeason,
+                                subEpisode = subEpisode,
+                            )
+                        }
+                    }
                 }
-                val titleLp = FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                ).apply {
-                    gravity = Gravity.START or Gravity.TOP
-                    val margin = (16 * density).toInt()
-                    setMargins(margin, margin, margin, margin)
-                }
-                frame.addView(titleView, titleLp)
             }
+            frame.addView(
+                overlayView,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            playerView.setControllerVisibilityListener(
+                PlayerView.ControllerVisibilityListener { visibility ->
+                    overlayVisible.value = visibility == View.VISIBLE
+                },
+            )
             setContentView(frame)
             // En TV se continúa automáticamente donde quedó (sin diálogo).
             lifecycleScope.launch {

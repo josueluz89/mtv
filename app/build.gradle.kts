@@ -29,8 +29,8 @@ android {
         applicationId = "com.mtv.iptv"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.5.0"
+        versionCode = 13
+        versionName = "1.6.0"
 
         // Key inyectada como BuildConfig; vacía si no está configurada (la app lo tolera).
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
@@ -93,10 +93,10 @@ dependencies {
     implementation("androidx.tv:tv-material:1.0.0")
 
     // Reproductor
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
-    implementation("androidx.media3:media3-ui:1.4.1")
+    implementation("androidx.media3:media3-exoplayer:1.9.0")
+    implementation("androidx.media3:media3-exoplayer-hls:1.9.0")
+    implementation("androidx.media3:media3-exoplayer-dash:1.9.0")
+    implementation("androidx.media3:media3-ui:1.9.0")
 
     // Red
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
