@@ -134,7 +134,7 @@ fun ContinueWatchingCard(
             )
         }
         LinearProgressIndicator(
-            progress = { progress },
+            progress = progress,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 4.dp),
