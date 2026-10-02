@@ -4,7 +4,6 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -62,6 +61,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -427,9 +428,9 @@ fun TvIconRail(
     onSelect: (String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val width by animateDpAsState(
-        targetValue = if (expanded) 230.dp else 78.dp,
-    )
+    // Ancho directo, sin animación: el re-layout del contenido es
+    // instantáneo y no parpadea al mover el foco rápido con el D-pad.
+    val width = if (expanded) 230.dp else 78.dp
     Column(
         modifier = Modifier
             .width(width)
@@ -1160,6 +1161,17 @@ fun TvMoviesMain(
         return
     }
 
+    // Con carpeta seleccionada la columna de carpetas se oculta (estilo
+    // TiviMate) y el catálogo ocupa todo el ancho. Atrás vuelve a la vista
+    // con columnas en vez de salir de la sección.
+    BackHandler(enabled = selectedId != null) { selectedId = null }
+    // Al ocultarse la columna, el foco se mueve al botón Ordenar para que
+    // no quede perdido.
+    val sortButtonRequester = remember { FocusRequester() }
+    LaunchedEffect(selectedId) {
+        if (selectedId != null) sortButtonRequester.requestFocus()
+    }
+
     Row(Modifier.fillMaxSize()) {
         val entries = remember(folders) {
             listOf(TvNavEntry(id = "__all__", label = "Todas las películas")) +
@@ -1167,12 +1179,14 @@ fun TvMoviesMain(
                     TvNavEntry(id = cat.categoryId, label = cat.categoryName, count = total, isFolder = true)
                 }
         }
-        TvNavColumn(
-            entries = entries,
-            selectedId = selectedId ?: "__all__",
-            onSelect = { e -> selectedId = e.id.takeIf { it != "__all__" } },
-            modifier = Modifier.width(300.dp).fillMaxHeight(),
-        )
+        if (selectedId == null) {
+            TvNavColumn(
+                entries = entries,
+                selectedId = "__all__",
+                onSelect = { e -> selectedId = e.id.takeIf { it != "__all__" } },
+                modifier = Modifier.width(300.dp).fillMaxHeight(),
+            )
+        }
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             Column(modifier = Modifier.fillMaxSize().background(MtvBg)) {
                 // Fila de ordenación sobre la grilla.
@@ -1186,7 +1200,10 @@ fun TvMoviesMain(
                         color = MtvOnVariant,
                     )
                     Spacer(Modifier.weight(1f))
-                    Button(onClick = { showSort = true }) { Text("Ordenar") }
+                    Button(
+                        onClick = { showSort = true },
+                        modifier = Modifier.focusRequester(sortButtonRequester),
+                    ) { Text("Ordenar") }
                 }
                 if (groupByCategory && selectedId == null) {
                     TvGroupedPosters(
@@ -1318,6 +1335,17 @@ fun TvSeriesMain(
         return
     }
 
+    // Con carpeta seleccionada la columna de carpetas se oculta (estilo
+    // TiviMate) y el catálogo ocupa todo el ancho. Atrás vuelve a la vista
+    // con columnas en vez de salir de la sección.
+    BackHandler(enabled = selectedId != null) { selectedId = null }
+    // Al ocultarse la columna, el foco se mueve al botón Ordenar para que
+    // no quede perdido.
+    val sortButtonRequester = remember { FocusRequester() }
+    LaunchedEffect(selectedId) {
+        if (selectedId != null) sortButtonRequester.requestFocus()
+    }
+
     Row(Modifier.fillMaxSize()) {
         val entries = remember(folders) {
             listOf(TvNavEntry(id = "__all__", label = "Todos los shows")) +
@@ -1325,12 +1353,14 @@ fun TvSeriesMain(
                     TvNavEntry(id = cat.categoryId, label = cat.categoryName, count = total, isFolder = true)
                 }
         }
-        TvNavColumn(
-            entries = entries,
-            selectedId = selectedId ?: "__all__",
-            onSelect = { e -> selectedId = e.id.takeIf { it != "__all__" } },
-            modifier = Modifier.width(300.dp).fillMaxHeight(),
-        )
+        if (selectedId == null) {
+            TvNavColumn(
+                entries = entries,
+                selectedId = "__all__",
+                onSelect = { e -> selectedId = e.id.takeIf { it != "__all__" } },
+                modifier = Modifier.width(300.dp).fillMaxHeight(),
+            )
+        }
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             Column(modifier = Modifier.fillMaxSize().background(MtvBg)) {
                 // Fila de ordenación sobre la grilla.
@@ -1344,7 +1374,10 @@ fun TvSeriesMain(
                         color = MtvOnVariant,
                     )
                     Spacer(Modifier.weight(1f))
-                    Button(onClick = { showSort = true }) { Text("Ordenar") }
+                    Button(
+                        onClick = { showSort = true },
+                        modifier = Modifier.focusRequester(sortButtonRequester),
+                    ) { Text("Ordenar") }
                 }
                 if (groupByCategory && selectedId == null) {
                     TvGroupedPosters(
