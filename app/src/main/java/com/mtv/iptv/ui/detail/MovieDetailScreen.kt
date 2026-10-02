@@ -45,7 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.mtv.iptv.PlayerActivity
+import com.mtv.iptv.player.ExternalPlayer
 import com.mtv.iptv.data.local.db.FavoriteEntity
 import com.mtv.iptv.data.remote.tmdb.TitleCleaner
 import com.mtv.iptv.data.remote.tmdb.TmdbClient
@@ -134,8 +134,7 @@ fun MovieDetailScreen(
 
     fun play() {
         val vi = info ?: return
-        PlayerActivity.start(
-            context,
+        ExternalPlayer.play(context, container,
             repo.vodUrl(vi.movieData.streamId, vi.movieData.containerExtension),
             vi.movieData.name,
             "vod:${vi.movieData.streamId}",

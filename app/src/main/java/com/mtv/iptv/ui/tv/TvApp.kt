@@ -43,7 +43,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import com.mtv.iptv.PlayerActivity
+import com.mtv.iptv.player.ExternalPlayer
 import com.mtv.iptv.data.local.db.PlaybackEntity
 import com.mtv.iptv.data.remote.tmdb.TitleCleaner
 import com.mtv.iptv.data.remote.tmdb.TmdbClient
@@ -488,7 +488,7 @@ fun TvBrowseScreen(
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(continueWatching, key = { it.mediaKey }) { item ->
                         TvMediaCard(title = item.name, imageUrl = item.imageUrl.ifBlank { null }) {
-                            PlayerActivity.start(context, item.url, item.name, item.mediaKey, item.imageUrl)
+                            ExternalPlayer.play(context, container, item.url, item.name, item.mediaKey, item.imageUrl)
                         }
                     }
                 }
@@ -505,7 +505,7 @@ fun TvBrowseScreen(
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(liveItems, key = { "${it.streamId}:${it.name}" }) { s ->
                         TvMediaCard(title = s.name, imageUrl = s.streamIcon.ifBlank { null }) {
-                            PlayerActivity.start(context, repo.liveUrl(s.streamId), s.name, "live:${s.streamId}", s.streamIcon)
+                            ExternalPlayer.play(context, container, repo.liveUrl(s.streamId), s.name, "live:${s.streamId}", s.streamIcon)
                         }
                     }
                 }
@@ -629,8 +629,7 @@ fun TvVodDetailsScreen(streamId: Int, onBack: () -> Unit) {
                     Spacer(Modifier.height(24.dp))
                     Button(onClick = {
                         if (vi != null) {
-                            PlayerActivity.start(
-                                context,
+                            ExternalPlayer.play(context, container,
                                 repo.vodUrl(vi.movieData.streamId, vi.movieData.containerExtension),
                                 vi.movieData.name,
                                 "vod:${vi.movieData.streamId}",
@@ -719,8 +718,7 @@ fun TvSeriesDetailsScreen(seriesId: Int, onBack: () -> Unit) {
             items(episodes, key = { "${it.id.ifBlank { "ep" }}:${it.episodeNum}:${it.title}" }) { ep ->
                 Card(
                     onClick = {
-                        PlayerActivity.start(
-                            context,
+                        ExternalPlayer.play(context, container,
                             repo.episodeUrl(ep.id, ep.containerExtension),
                             "$title — ${ep.title.ifBlank { "Episodio ${ep.episodeNum}" }}",
                             "ep:${ep.id}",
@@ -916,8 +914,7 @@ fun TvCategoryItemsScreen(
                 "live" -> LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(liveList, key = { "${it.streamId}:${it.name}" }) { s ->
                         TvMediaCard(title = s.name, imageUrl = s.streamIcon.ifBlank { null }) {
-                            PlayerActivity.start(
-                                context,
+                            ExternalPlayer.play(context, container,
                                 repo.liveUrl(s.streamId),
                                 s.name,
                                 "live:${s.streamId}",
@@ -985,8 +982,7 @@ fun TvDownloadsScreen(onBack: () -> Unit) {
                 TvDownloadRow(
                     entry = entry,
                     onPlay = {
-                        PlayerActivity.start(
-                            context, entry.url, entry.title, entry.id, entry.imageUrl
+                        ExternalPlayer.play(context, container, entry.url, entry.title, entry.id, entry.imageUrl
                         )
                     },
                     onDelete = { module.removeDownload(entry.id) },

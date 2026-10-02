@@ -33,7 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.mtv.iptv.PlayerActivity
+import com.mtv.iptv.player.ExternalPlayer
 import com.mtv.iptv.data.remote.xtream.XtreamLiveStream
 import com.mtv.iptv.data.remote.xtream.XtreamSeries
 import com.mtv.iptv.data.remote.xtream.XtreamVodStream
@@ -177,8 +177,7 @@ fun SearchScreen(
                                         iconUrl = s.streamIcon.ifBlank { null },
                                         name = s.name,
                                         onClick = {
-                                            PlayerActivity.start(
-                                                context,
+                                            ExternalPlayer.play(context, container,
                                                 repo.liveUrl(s.streamId),
                                                 s.name,
                                                 "live:${s.streamId}",

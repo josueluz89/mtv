@@ -16,7 +16,7 @@ import com.mtv.iptv.ui.player.TvPlayerScreen
 import com.mtv.iptv.ui.theme.MtvTheme
 
 /**
- * Activity separada que hostea el reproductor (motor libVLC, v1.3).
+ * Activity que hostea el reproductor interno (ExoPlayer).
  * En TV usa [TvPlayerScreen] (SurfaceView + controles Compose navegables con
  * D-pad); en celular muestra [PlayerScreen] (gestos + overlay Compose).
  */

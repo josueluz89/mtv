@@ -46,7 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.mtv.iptv.PlayerActivity
+import com.mtv.iptv.player.ExternalPlayer
 import com.mtv.iptv.data.remote.xtream.XtreamLiveStream
 import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.ui.common.MtvBg
@@ -121,8 +121,7 @@ fun LiveTvScreen(onBack: () -> Unit) {
     }
 
     fun playChannel(s: XtreamLiveStream) {
-        PlayerActivity.start(
-            context,
+        ExternalPlayer.play(context, container,
             repo.liveUrl(s.streamId),
             s.name,
             "live:${s.streamId}",

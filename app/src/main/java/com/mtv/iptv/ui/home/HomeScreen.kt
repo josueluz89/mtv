@@ -28,7 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.mtv.iptv.PlayerActivity
+import com.mtv.iptv.player.ExternalPlayer
 import com.mtv.iptv.data.local.db.PlaybackEntity
 import com.mtv.iptv.data.remote.tmdb.TitleCleaner
 import com.mtv.iptv.data.remote.tmdb.TmdbSearchResult
@@ -211,8 +211,7 @@ fun HomeScreen(
                                     positionMs = item.positionMs,
                                     durationMs = item.durationMs,
                                     onClick = {
-                                        PlayerActivity.start(
-                                            context, item.url, item.name,
+                                        ExternalPlayer.play(context, container, item.url, item.name,
                                             item.mediaKey, item.imageUrl,
                                         )
                                     },
@@ -269,8 +268,7 @@ fun HomeScreen(
                                     iconUrl = s.streamIcon.ifBlank { null },
                                     name = s.name,
                                     onClick = {
-                                        PlayerActivity.start(
-                                            context,
+                                        ExternalPlayer.play(context, container,
                                             repo.liveUrl(s.streamId),
                                             s.name,
                                             "live:${s.streamId}",

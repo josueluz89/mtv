@@ -53,7 +53,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.mtv.iptv.PlayerActivity
+import com.mtv.iptv.player.ExternalPlayer
 import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.player.downloads.DownloadEntry
 import com.mtv.iptv.player.downloads.DownloadQuality
@@ -267,8 +267,7 @@ fun DownloadsScreen(onBack: () -> Unit) {
                         DownloadCard(
                             entry = entry,
                             onPlay = {
-                                PlayerActivity.start(
-                                    context, entry.url, entry.title, entry.id, entry.imageUrl
+                                ExternalPlayer.play(context, container, entry.url, entry.title, entry.id, entry.imageUrl
                                 )
                             },
                             onDelete = { confirmDelete = entry },

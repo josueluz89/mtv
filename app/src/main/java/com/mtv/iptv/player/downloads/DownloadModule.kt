@@ -105,10 +105,9 @@ class DownloadModule(appContext: Context) {
     }
 
     /**
-     * v1.3: resuelve el archivo local de una descarga para reproducirlo con
-     * libVLC, que NO comparte el caché de Media3 (el PlayerManager viejo leía
-     * del caché automáticamente vía CacheDataSource; VLC necesita el archivo
-     * físico).
+     * Resuelve el archivo físico local de una descarga COMPLETA para pasarlo
+     * como `file://` a reproductores externos (la app usa el VLC instalado
+     * del usuario vía Intent; ExoPlayer interno lee del caché directamente).
      *
      * Recorre las spans en caché de la [url]: si cubren el contenido desde el
      * byte 0 sin huecos y están en un único archivo, lo devuelve; si no,

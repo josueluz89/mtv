@@ -35,7 +35,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.mtv.iptv.PlayerActivity
+import com.mtv.iptv.player.ExternalPlayer
 import com.mtv.iptv.data.local.db.FavoriteEntity
 import com.mtv.iptv.di.LocalAppContainer
 import kotlinx.coroutines.launch
@@ -58,7 +58,7 @@ fun FavoritesScreen(
     fun open(fav: FavoriteEntity) {
         when (fav.kind) {
             "live" -> fav.refId.toIntOrNull()?.let {
-                PlayerActivity.start(context, repo.liveUrl(it), fav.name, "live:$it", fav.imageUrl)
+                ExternalPlayer.play(context, container, repo.liveUrl(it), fav.name, "live:$it", fav.imageUrl)
             }
             "vod" -> fav.refId.toIntOrNull()?.let { onVod(it) }
             "series" -> fav.refId.toIntOrNull()?.let { onSeries(it) }

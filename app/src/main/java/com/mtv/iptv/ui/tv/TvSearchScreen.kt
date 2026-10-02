@@ -30,7 +30,7 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import com.mtv.iptv.PlayerActivity
+import com.mtv.iptv.player.ExternalPlayer
 import com.mtv.iptv.data.remote.xtream.XtreamLiveStream
 import com.mtv.iptv.data.remote.xtream.XtreamSeries
 import com.mtv.iptv.data.remote.xtream.XtreamVodStream
@@ -134,8 +134,7 @@ fun TvSearchScreen(
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         items(liveResults, key = { "live:${it.streamId}" }) { s ->
                             TvMediaCard(title = s.name, imageUrl = s.streamIcon.ifBlank { null }) {
-                                PlayerActivity.start(
-                                    context, repo.liveUrl(s.streamId), s.name,
+                                ExternalPlayer.play(context, container, repo.liveUrl(s.streamId), s.name,
                                     "live:${s.streamId}", s.streamIcon,
                                 )
                             }

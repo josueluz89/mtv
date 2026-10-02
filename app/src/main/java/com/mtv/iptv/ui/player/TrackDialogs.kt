@@ -11,33 +11,27 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.mtv.iptv.player.vlc.VlcPlayer
+import com.mtv.iptv.player.PlayerManager
 import com.mtv.iptv.ui.mobile.safeClickable
 import java.util.Locale
 
-/**
- * Diálogos de pistas contra los tracks de libVLC ([VlcPlayer]).
- * - Pista de audio: -1 = automática.
- * - Subtítulos: -1 = desactivados.
- */
 @Composable
-fun AudioTrackDialog(manager: VlcPlayer, onDismiss: () -> Unit) {
+fun AudioTrackDialog(manager: PlayerManager, onDismiss: () -> Unit) {
     val options = manager.audioTracks()
-    val selected = manager.selectedAudioTrackId
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Pista de audio") },
         text = {
             LazyColumn {
                 item {
-                    TrackRow("Automática", isSelected = selected == -1) {
-                        manager.selectAudioTrack(-1)
+                    TrackRow("Automática", isSelected = false) {
+                        manager.clearAudioOverride()
                         onDismiss()
                     }
                 }
                 items(options) { opt ->
-                    TrackRow(opt.label, isSelected = opt.trackId == selected) {
-                        manager.selectAudioTrack(opt.trackId)
+                    TrackRow(opt.label, isSelected = false) {
+                        manager.selectAudio(opt.groupIndex, opt.trackIndex)
                         onDismiss()
                     }
                 }
@@ -51,23 +45,22 @@ fun AudioTrackDialog(manager: VlcPlayer, onDismiss: () -> Unit) {
 }
 
 @Composable
-fun SubtitleTrackDialog(manager: VlcPlayer, onDismiss: () -> Unit) {
-    val options = manager.subtitleTracks()
-    val selected = manager.selectedSubtitleTrackId
+fun SubtitleTrackDialog(manager: PlayerManager, onDismiss: () -> Unit) {
+    val options = manager.textTracks()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Subtítulos") },
         text = {
             LazyColumn {
                 item {
-                    TrackRow("Desactivados", isSelected = selected == -1) {
-                        manager.selectSubtitleTrack(-1)
+                    TrackRow("Desactivados", isSelected = false) {
+                        manager.disableText()
                         onDismiss()
                     }
                 }
                 items(options) { opt ->
-                    TrackRow(opt.label, isSelected = opt.trackId == selected) {
-                        manager.selectSubtitleTrack(opt.trackId)
+                    TrackRow(opt.label, isSelected = false) {
+                        manager.selectText(opt.groupIndex, opt.trackIndex)
                         onDismiss()
                     }
                 }
@@ -133,19 +126,20 @@ fun SleepTimerDialog(selectedMinutes: Int, onSelect: (Int) -> Unit, onDismiss: (
 }
 
 @Composable
-fun StreamInfoDialog(manager: VlcPlayer, onDismiss: () -> Unit) {
-    val vi = manager.videoInfo()
-    val resolution = if (vi != null && vi.width > 0 && vi.height > 0) {
-        "${vi.width} × ${vi.height}"
+fun StreamInfoDialog(manager: PlayerManager, onDismiss: () -> Unit) {
+    // Se lee en el hilo principal (los diálogos Compose corren en UI).
+    val vf = manager.player.videoFormat
+    val resolution = if (vf != null && vf.width > 0 && vf.height > 0) {
+        "${vf.width} × ${vf.height}"
     } else {
         "—"
     }
-    val codec = vi?.codec?.takeIf { it.isNotBlank() }?.uppercase(Locale.US) ?: "—"
-    val fps = if (vi != null && vi.fps > 0) "${vi.fps.toInt()} fps" else "—"
+    val codec = vf?.sampleMimeType?.substringAfter("/")?.uppercase(Locale.US)?.takeIf { it.isNotBlank() } ?: "—"
+    val fps = if (vf != null && vf.frameRate > 0) "${vf.frameRate.toInt()} fps" else "—"
     val bitrate = when {
-        vi == null || vi.bitrateBps <= 0 -> "—"
-        vi.bitrateBps >= 1_000_000 -> String.format(Locale.US, "%.1f Mbps", vi.bitrateBps / 1_000_000f)
-        else -> "${vi.bitrateBps / 1000} kbps"
+        vf == null || vf.bitrate <= 0 -> "—"
+        vf.bitrate >= 1_000_000 -> String.format(Locale.US, "%.1f Mbps", vf.bitrate / 1_000_000f)
+        else -> "${vf.bitrate / 1000} kbps"
     }
     AlertDialog(
         onDismissRequest = onDismiss,

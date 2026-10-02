@@ -30,16 +30,10 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 10
-        versionName = "1.3.0"
+        versionName = "1.3.1"
 
         // Key inyectada como BuildConfig; vacía si no está configurada (la app lo tolera).
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
-
-        // libVLC trae binarios para todas las ABIs; limitar a las que usamos
-        // (Fire TV/Stick y celulares) para no inflar el APK.
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
-        }
     }
 
     buildTypes {
@@ -103,11 +97,6 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
     implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
-
-    // Motor VLC embebido (libVLC 3.6.4, la 3.6.x estable más cercana: la 3.6.0
-    // nunca se publicó como estable en Maven Central). Reemplaza a ExoPlayer
-    // como motor de reproducción (HLS, DASH, TS, mp4/mkv por HTTP).
-    implementation("org.videolan.android:libvlc-all:3.6.4")
 
     // Red
     implementation("com.squareup.retrofit2:retrofit:2.11.0")

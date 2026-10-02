@@ -31,7 +31,21 @@ private val speedOptions = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
 
 private fun speedLabel(speed: Float): String = "${speedOptions.firstOrNull { it == speed } ?: speed}x"
 
-/** Reproducción: velocidad por defecto, autoplay, PiP y continuar donde quedó. */
+private val playerModeOptions = listOf("auto", "internal", "external")
+
+private fun playerModeLabel(mode: String): String = when (mode) {
+    "internal" -> "Interno (app)"
+    "external" -> "Externo (VLC)"
+    else -> "Automático"
+}
+
+private fun playerModeDescription(mode: String): String = when (mode) {
+    "internal" -> "Siempre usa el reproductor de la app"
+    "external" -> "Siempre usa VLC externo"
+    else -> "Usa VLC externo si está instalado, si no el interno"
+}
+
+/** Reproducción: velocidad por defecto, autoplay, PiP, continuar donde quedó y reproductor. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaybackScreen(onBack: () -> Unit) {
@@ -43,8 +57,10 @@ fun PlaybackScreen(onBack: () -> Unit) {
     val autoplayNext by prefs.autoplayNext.collectAsState(initial = false)
     val pipEnabled by prefs.pipEnabled.collectAsState(initial = true)
     val resumeEnabled by prefs.resumeEnabled.collectAsState(initial = true)
+    val playerMode by prefs.playerMode.collectAsState(initial = "auto")
 
     var speedDialog by remember { mutableStateOf(false) }
+    var playerDialog by remember { mutableStateOf(false) }
 
     fun setPref(action: suspend () -> Unit) = scope.launch { action() }
 
@@ -89,6 +105,11 @@ fun PlaybackScreen(onBack: () -> Unit) {
                     checked = resumeEnabled,
                     onCheckedChange = { setPref { prefs.setResumeEnabled(it) } },
                 )
+                SettingsRow(
+                    title = "Reproductor",
+                    subtitle = "${playerModeLabel(playerMode)} · ${playerModeDescription(playerMode)}",
+                    onClick = { playerDialog = true },
+                )
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -104,6 +125,19 @@ fun PlaybackScreen(onBack: () -> Unit) {
                 speedDialog = false
             },
             onDismiss = { speedDialog = false },
+        )
+    }
+
+    if (playerDialog) {
+        OptionsDialog(
+            title = "Reproductor",
+            options = playerModeOptions.map { it to playerModeLabel(it) },
+            selected = playerMode,
+            onSelect = {
+                setPref { prefs.setPlayerMode(it) }
+                playerDialog = false
+            },
+            onDismiss = { playerDialog = false },
         )
     }
 }

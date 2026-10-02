@@ -50,7 +50,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.mtv.iptv.PlayerActivity
+import com.mtv.iptv.player.ExternalPlayer
 import com.mtv.iptv.data.local.db.FavoriteEntity
 import com.mtv.iptv.data.remote.tmdb.TitleCleaner
 import com.mtv.iptv.data.remote.tmdb.TmdbClient
@@ -129,8 +129,7 @@ fun SeriesDetailScreen(
 
     fun playEpisode(ep: XtreamEpisode, seriesName: String, poster: String) {
         val epTitle = ep.title.ifBlank { "Episodio ${ep.episodeNum}" }
-        PlayerActivity.start(
-            context,
+        ExternalPlayer.play(context, container,
             repo.episodeUrl(ep.id, ep.containerExtension),
             "$seriesName — $epTitle",
             "ep:${ep.id}",

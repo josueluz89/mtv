@@ -104,6 +104,15 @@ class UserPrefs(private val context: Context) {
         context.dataStore.edit { it[resumeEnabledKey] = value }
     }
 
+    private val playerModeKey = stringPreferencesKey("player_mode")
+
+    /** Reproductor ("auto" | "internal" | "external"). Default "auto". */
+    val playerMode: Flow<String> = context.dataStore.data.map { it[playerModeKey] ?: "auto" }
+
+    suspend fun setPlayerMode(value: String) {
+        context.dataStore.edit { it[playerModeKey] = value }
+    }
+
     // ---------------- Descargas ----------------
 
     private val dlQualityKey = stringPreferencesKey("dl_quality")
