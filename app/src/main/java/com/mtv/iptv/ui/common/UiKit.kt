@@ -1,5 +1,3 @@
-@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
-
 package com.mtv.iptv.ui.common
 
 import android.content.Context
@@ -22,6 +20,10 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SmartDisplay
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -42,10 +44,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button as TvButton
-import androidx.tv.material3.ButtonDefaults as TvButtonDefaults
-import androidx.tv.material3.Card as TvCard
-import androidx.tv.material3.CardDefaults as TvCardDefaults
 import coil.compose.AsyncImage
 
 // ---------------- Paleta MTV (oscura, con profundidad) ----------------
@@ -156,7 +154,7 @@ fun openYoutube(context: Context, key: String) {
     )
 }
 
-// ---------------- Botones (tv-material3: foco D-pad + touch) ----------------
+// ---------------- Botones (Material3 normal: responden a taps táctiles) ----------------
 
 @Composable
 fun PrimaryButton(
@@ -166,15 +164,13 @@ fun PrimaryButton(
     icon: ImageVector? = null,
     enabled: Boolean = true,
 ) {
-    TvButton(
+    Button(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier,
-        colors = TvButtonDefaults.colors(
+        colors = ButtonDefaults.buttonColors(
             containerColor = MtvRed,
             contentColor = Color.White,
-            focusedContainerColor = MtvRed,
-            focusedContentColor = Color.White,
         ),
     ) {
         if (icon != null) {
@@ -193,15 +189,13 @@ fun SecondaryButton(
     icon: ImageVector? = null,
     enabled: Boolean = true,
 ) {
-    TvButton(
+    Button(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier,
-        colors = TvButtonDefaults.colors(
+        colors = ButtonDefaults.buttonColors(
             containerColor = MtvSurfaceVariant,
             contentColor = MtvOnBg,
-            focusedContainerColor = MtvSurfaceHigh,
-            focusedContentColor = MtvOnBg,
         ),
     ) {
         if (icon != null) {
@@ -326,8 +320,8 @@ fun RatingBadge(rating: Double, modifier: Modifier = Modifier) {
 
 /**
  * Tarjeta de póster 2:3 con degradado, badge de rating y título.
- * Usa tv-material3 Card: navegable con D-pad (foco con escala/brillo) y
- * tocable en celular.
+ * Usa Material3 Card normal con onClick: responde a taps táctiles en celular
+ * (tv-material3 Card está hecha para foco con D-pad y no responde al tap).
  */
 @Composable
 fun ImPosterCard(
@@ -338,11 +332,11 @@ fun ImPosterCard(
     modifier: Modifier = Modifier,
     cardWidth: Dp = 128.dp,
 ) {
-    TvCard(
+    Card(
         onClick = onClick,
         modifier = modifier.width(cardWidth),
-        shape = TvCardDefaults.shape(RoundedCornerShape(12.dp)),
-        colors = TvCardDefaults.colors(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
             containerColor = MtvSurface,
             contentColor = MtvOnBg,
         ),

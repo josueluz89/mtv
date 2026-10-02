@@ -1,5 +1,3 @@
-@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
-
 package com.mtv.iptv.ui.detail
 
 import androidx.compose.foundation.background

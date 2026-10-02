@@ -4,27 +4,21 @@ import android.app.UiModeManager
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
-import android.graphics.Color
 import android.os.Bundle
-import android.view.Gravity
-import android.widget.FrameLayout
-import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.lifecycleScope
-import androidx.media3.ui.PlayerView
 import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.ui.player.PlayerScreen
+import com.mtv.iptv.ui.player.TvPlayerScreen
 import com.mtv.iptv.ui.theme.MtvTheme
-import kotlinx.coroutines.launch
 
 /**
- * Activity separada que hostea el reproductor.
- * En TV usa un PlayerView directo con su controlador (navegable con D-pad);
- * en celular muestra PlayerScreen (gestos + overlay Compose).
+ * Activity separada que hostea el reproductor (motor libVLC, v1.3).
+ * En TV usa [TvPlayerScreen] (SurfaceView + controles Compose navegables con
+ * D-pad); en celular muestra [PlayerScreen] (gestos + overlay Compose).
  */
 class PlayerActivity : ComponentActivity() {
 
@@ -57,70 +51,22 @@ class PlayerActivity : ComponentActivity() {
         }
 
         val container = appContainer
-        val manager = container.playerManager
         val uiModeManager = getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
         val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
 
-        if (isTv) {
-            // Rama TV: PlayerView con su controlador (D-pad) dentro de un
-            // FrameLayout con el título del contenido arriba a la izquierda,
-            // semi-transparente, para que se sienta como un reproductor de TV real.
-            val frame = FrameLayout(this).apply {
-                setBackgroundColor(Color.BLACK)
-            }
-            val playerView = PlayerView(this).apply {
-                useController = true
-                setShowPreviousButton(false)
-                setShowNextButton(false)
-                controllerShowTimeoutMs = 4000
-            }
-            playerView.player = manager.player
-            frame.addView(
-                playerView,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                ),
-            )
-            if (title.isNotBlank()) {
-                val density = resources.displayMetrics.density
-                val titleView = TextView(this).apply {
-                    text = title
-                    setTextColor(Color.WHITE)
-                    textSize = 18f
-                    setBackgroundColor(0x99000000.toInt())
-                    val hPad = (16 * density).toInt()
-                    val vPad = (8 * density).toInt()
-                    setPadding(hPad, vPad, hPad, vPad)
-                }
-                val titleLp = FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                ).apply {
-                    gravity = Gravity.START or Gravity.TOP
-                    val margin = (16 * density).toInt()
-                    setMargins(margin, margin, margin, margin)
-                }
-                frame.addView(titleView, titleLp)
-            }
-            setContentView(frame)
-            // En TV se continúa automáticamente donde quedó (sin diálogo).
-            lifecycleScope.launch {
-                val saved = container.playbackRepository.get(mediaKey)
-                val startAt = if (saved != null && saved.positionMs > 10_000 &&
-                    (saved.durationMs <= 0 || saved.positionMs < saved.durationMs - 15_000)
-                ) {
-                    saved.positionMs
-                } else {
-                    0L
-                }
-                manager.play(url, mediaKey, title, imageUrl, startAt)
-            }
-        } else {
-            setContent {
-                val theme by container.userPrefs.theme.collectAsState(initial = "sistema")
-                CompositionLocalProvider(LocalAppContainer provides container) {
-                    MtvTheme(theme = theme) {
+        setContent {
+            val theme by container.userPrefs.theme.collectAsState(initial = "sistema")
+            CompositionLocalProvider(LocalAppContainer provides container) {
+                MtvTheme(theme = theme) {
+                    if (isTv) {
+                        TvPlayerScreen(
+                            url = url,
+                            title = title,
+                            mediaKey = mediaKey,
+                            imageUrl = imageUrl,
+                            onBack = { finish() },
+                        )
+                    } else {
                         PlayerScreen(
                             url = url,
                             title = title,
@@ -135,8 +81,9 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        // PlayerScreen también guarda la posición al salir; esto es respaldo.
-        appContainer.playerManager.stop()
+        // PlayerScreen/TvPlayerScreen ya guardan la posición y detienen el motor
+        // al salir; esto es respaldo (sin inicializar el player si nunca se usó).
+        appContainer.stopVlcIfRunning()
         super.onDestroy()
     }
 }

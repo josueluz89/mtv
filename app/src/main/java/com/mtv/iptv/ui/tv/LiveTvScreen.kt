@@ -1,5 +1,3 @@
-@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
-
 package com.mtv.iptv.ui.tv
 
 import androidx.compose.animation.AnimatedVisibility
@@ -27,6 +25,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -45,8 +45,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Card as TvCard
-import androidx.tv.material3.CardDefaults as TvCardDefaults
 import coil.compose.AsyncImage
 import com.mtv.iptv.PlayerActivity
 import com.mtv.iptv.data.remote.xtream.XtreamLiveStream
@@ -186,13 +184,13 @@ private fun ExpandableCategoryCard(
     onToggle: () -> Unit,
     onChannel: (XtreamLiveStream) -> Unit,
 ) {
-    TvCard(
+    Card(
         onClick = onToggle,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp),
-        shape = TvCardDefaults.shape(RoundedCornerShape(16.dp)),
-        colors = TvCardDefaults.colors(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
             containerColor = MtvSurface,
             contentColor = MtvOnBg,
         ),
@@ -266,11 +264,11 @@ private fun ExpandableCategoryCard(
 
 @Composable
 private fun ChannelRow(channel: XtreamLiveStream, onClick: () -> Unit) {
-    TvCard(
+    Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = TvCardDefaults.shape(RoundedCornerShape(12.dp)),
-        colors = TvCardDefaults.colors(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
             containerColor = MtvSurfaceVariant,
             contentColor = MtvOnBg,
         ),

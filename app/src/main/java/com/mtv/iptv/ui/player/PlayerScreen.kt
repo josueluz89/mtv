@@ -5,18 +5,18 @@ import android.app.PictureInPictureParams
 import android.content.Context
 import android.media.AudioManager
 import android.util.Rational
+import android.view.SurfaceView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AspectRatio
@@ -29,14 +29,15 @@ import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
+import androidx.compose.material.icons.filled.Play
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -46,6 +47,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -64,13 +66,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.media3.common.Player
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import com.mtv.iptv.data.local.db.PlaybackEntity
 import com.mtv.iptv.data.remote.tmdb.TitleCleaner
 import com.mtv.iptv.data.remote.xtream.XtreamEpisode
 import com.mtv.iptv.di.LocalAppContainer
+import com.mtv.iptv.player.vlc.VlcAspectMode
+import com.mtv.iptv.player.vlc.VlcPlayer
 import com.mtv.iptv.util.formatMs
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -78,14 +79,17 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-private data class Indicator(val icon: ImageVector, val text: String)
-
 /**
- * Reproductor para celular: PlayerView (Media3) + overlay Compose con gestos:
- * - Swipe vertical izquierda: brillo | derecha: volumen
- * - Swipe horizontal: seek con indicador
- * - Doble tap laterales: ±10s
- * - Botones: subtítulos, audio, velocidad, ajuste de pantalla, PiP, bloqueo
+ * Reproductor para celular con motor libVLC (v1.3).
+ *
+ * Video: [SurfaceView] donde libVLC renderiza vía `IVLCVout.attachViews`
+ * (ver [VlcPlayer.attachSurface]). Los controles son 100% Compose:
+ * - Barra superior: título, subtítulos, audio, velocidad, ajuste de pantalla,
+ *   info del stream, temporizador, PiP, bloqueo.
+ * - Barra inferior: play/pausa, seek ±10s, barra de progreso con tiempos.
+ * - Gestos sobre el video: swipe vertical izquierda = brillo, derecha = volumen,
+ *   swipe horizontal = seek, doble tap laterales = ±10s, tap = mostrar/ocultar.
+ * - "Continuar desde HH:MM", sleep timer, siguiente episodio automático.
  */
 @Composable
 fun PlayerScreen(
@@ -98,8 +102,7 @@ fun PlayerScreen(
     val context = LocalContext.current
     val activity = context as Activity
     val container = LocalAppContainer.current
-    val manager = remember { container.playerManager }
-    val player = remember { manager.player }
+    val manager: VlcPlayer = remember { container.vlcPlayer }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -107,8 +110,9 @@ fun PlayerScreen(
     var resumeFrom by remember { mutableStateOf<PlaybackEntity?>(null) }
     var resumeChecked by remember { mutableStateOf(false) }
     var locked by remember { mutableStateOf(false) }
-    var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
-    var indicator by remember { mutableStateOf<Indicator?>(null) }
+    var indicator by remember { mutableStateOf<PlayerIndicator?>(null) }
+    var controlsVisible by remember { mutableStateOf(true) }
+    var hideToken by remember { mutableIntStateOf(0) }
     var showSpeed by remember { mutableStateOf(false) }
     var showAudio by remember { mutableStateOf(false) }
     var showSubs by remember { mutableStateOf(false) }
@@ -117,18 +121,37 @@ fun PlayerScreen(
     var sleepMinutes by remember { mutableIntStateOf(0) }
     var sleepJob by remember { mutableStateOf<Job?>(null) }
     var speed by remember { mutableFloatStateOf(1f) }
-    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    var aspectMode by remember { mutableStateOf(VlcAspectMode.FIT) }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
+    // Estado de reproducción (sondeo cada 500 ms: libVLC no tiene Flow).
+    var positionMs by remember { mutableLongStateOf(0L) }
+    var durationMs by remember { mutableLongStateOf(0L) }
+    var isPlaying by remember { mutableStateOf(false) }
+    var scrubTo by remember { mutableStateOf<Long?>(null) }
 
     // Ajustes de usuario
     val pipEnabled by container.userPrefs.pipEnabled.collectAsState(initial = true)
     // Clave del medio actual (cambia si el autoplay salta al siguiente episodio).
     var currentKey by remember { mutableStateOf(mediaKey) }
 
+    /** Muestra los controles y reinicia el temporizador de ocultado. */
+    fun pokeControls() {
+        controlsVisible = true
+        hideToken++
+    }
+
+    /** Oculta los controles 3.5 s después de la última interacción. */
+    LaunchedEffect(hideToken) {
+        if (!controlsVisible) return@LaunchedEffect
+        delay(3500)
+        controlsVisible = false
+    }
+
     /** Arranca la reproducción aplicando la velocidad por defecto del ajuste. */
-    fun startPlayback(positionMs: Long) {
-        manager.play(url, mediaKey, title, imageUrl, positionMs)
-        player.setPlaybackSpeed(speed)
+    fun startPlayback(startAtMs: Long) {
+        manager.play(container.resolvePlaybackUrl(url), mediaKey, title, imageUrl, startAtMs)
+        manager.setRate(speed)
+        currentKey = mediaKey
     }
 
     /**
@@ -174,21 +197,22 @@ fun PlayerScreen(
             val nextKey = "ep:${ep.id}"
             val defaultSpeed = container.userPrefs.defaultSpeed.first()
             manager.play(
-                repo.episodeUrl(ep.id, ep.containerExtension),
+                container.resolvePlaybackUrl(repo.episodeUrl(ep.id, ep.containerExtension)),
                 nextKey,
                 nextTitle,
                 ep.info.movieImage.ifBlank { imageUrl },
                 0,
             )
-            player.setPlaybackSpeed(defaultSpeed)
+            manager.setRate(defaultSpeed)
             speed = defaultSpeed
             currentKey = nextKey
+            pokeControls()
         } catch (_: Exception) {
         }
     }
 
     fun showIndicator(icon: ImageVector, text: String) {
-        indicator = Indicator(icon, text)
+        indicator = PlayerIndicator(icon, text)
     }
 
     fun cancelSleep() {
@@ -202,7 +226,7 @@ fun PlayerScreen(
         if (minutes > 0) {
             sleepJob = scope.launch {
                 delay(minutes * 60_000L)
-                player.pause()
+                manager.pause()
                 showIndicator(Icons.Default.Bedtime, "Temporizador: pausado")
             }
             showIndicator(Icons.Default.Bedtime, "Temporizador: $minutes min")
@@ -215,6 +239,19 @@ fun PlayerScreen(
         if (indicator != null) {
             delay(900)
             indicator = null
+        }
+    }
+
+    // Sondeo del estado de reproducción (posición/duración/play-pausa).
+    LaunchedEffect(Unit) {
+        while (true) {
+            try {
+                positionMs = manager.positionMs
+                durationMs = manager.durationMs
+                isPlaying = manager.isPlaying
+            } catch (_: Exception) {
+            }
+            delay(500)
         }
     }
 
@@ -236,16 +273,9 @@ fun PlayerScreen(
     }
 
     // Siguiente episodio automático al terminar (si el ajuste está activo).
-    DisposableEffect(mediaKey) {
-        val listener = object : Player.Listener {
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_ENDED) {
-                    scope.launch { tryPlayNextEpisode() }
-                }
-            }
-        }
-        player.addListener(listener)
-        onDispose { player.removeListener(listener) }
+    DisposableEffect(currentKey) {
+        manager.setOnEndedListener { scope.launch { tryPlayNextEpisode() } }
+        onDispose { manager.setOnEndedListener(null) }
     }
 
     // Guardar posición al pausar la activity
@@ -263,15 +293,27 @@ fun PlayerScreen(
         onDispose {
             scope.launch { manager.savePosition() }
             manager.stop()
-            playerViewRef?.player = null
+            manager.detachSurface()
         }
     }
 
     fun seekBy(ms: Long) {
-        val newPos = (player.currentPosition + ms).coerceAtLeast(0)
-        player.seekTo(newPos)
+        val newPos = (manager.positionMs + ms).coerceAtLeast(0)
+        manager.seekTo(newPos)
         val label = (if (ms >= 0) "+" else "-") + formatMs(abs(ms))
         showIndicator(if (ms >= 0) Icons.Default.FastForward else Icons.Default.FastRewind, label)
+        pokeControls()
+    }
+
+    fun togglePlay() {
+        if (manager.isPlaying) {
+            manager.pause()
+            showIndicator(Icons.Default.Pause, "Pausa")
+        } else {
+            manager.resume()
+            showIndicator(Icons.Default.Play, "Reproduciendo")
+        }
+        pokeControls()
     }
 
     fun enterPip() {
@@ -281,20 +323,23 @@ fun PlayerScreen(
         activity.enterPictureInPictureMode(params)
     }
 
-    fun cycleResize() {
-        resizeMode = when (resizeMode) {
-            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-            AspectRatioFrameLayout.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+    fun cycleAspect() {
+        aspectMode = when (aspectMode) {
+            VlcAspectMode.FIT -> VlcAspectMode.FILL
+            VlcAspectMode.FILL -> VlcAspectMode.ZOOM
+            VlcAspectMode.ZOOM -> VlcAspectMode.FIT
         }
-        playerViewRef?.resizeMode = resizeMode
-        val label = when (resizeMode) {
-            AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Llenar"
-            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
-            else -> "Ajustar"
+        manager.setAspectMode(aspectMode)
+        val label = when (aspectMode) {
+            VlcAspectMode.FIT -> "Ajustar"
+            VlcAspectMode.FILL -> "Llenar"
+            VlcAspectMode.ZOOM -> "Zoom"
         }
         showIndicator(Icons.Default.AspectRatio, label)
+        pokeControls()
     }
+
+    val showTopBar = controlsVisible && !locked
 
     Box(
         modifier = Modifier
@@ -303,27 +348,22 @@ fun PlayerScreen(
     ) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
-                    this.player = manager.player
-                    useController = true
-                    setShowPreviousButton(false)
-                    setShowNextButton(false)
-                    setControllerShowTimeoutMs(3000)
-                    playerViewRef = this
-                }
+                SurfaceView(ctx).also { manager.attachSurface(it) }
             },
-            update = { it.useController = !locked },
             modifier = Modifier
                 .fillMaxSize()
                 .onGloballyPositioned { viewSize = it.size }
                 .pointerInput(locked) {
-                    if (!locked) {
-                        detectTapGestures(
-                            onDoubleTap = { offset ->
-                                if (offset.x < viewSize.width / 2) seekBy(-10_000) else seekBy(10_000)
-                            },
-                        )
-                    }
+                    if (locked) return@pointerInput
+                    detectTapGestures(
+                        onTap = {
+                            controlsVisible = !controlsVisible
+                            hideToken++
+                        },
+                        onDoubleTap = { offset ->
+                            if (offset.x < viewSize.width / 2) seekBy(-10_000) else seekBy(10_000)
+                        },
+                    )
                 }
                 .pointerInput(locked) {
                     if (locked) return@pointerInput
@@ -379,7 +419,8 @@ fun PlayerScreen(
                         onDragEnd = {
                             val s = (acc / 40).toInt()
                             if (s != 0) {
-                                player.seekTo((player.currentPosition + s * 1000L).coerceAtLeast(0))
+                                manager.seekTo((manager.positionMs + s * 1000L).coerceAtLeast(0))
+                                pokeControls()
                             }
                         },
                     )
@@ -387,7 +428,7 @@ fun PlayerScreen(
         )
 
         // Barra superior con acciones
-        if (!locked) {
+        if (showTopBar) {
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -415,7 +456,7 @@ fun PlayerScreen(
                 IconButton(onClick = { showSpeed = true }) {
                     Icon(Icons.Default.Speed, contentDescription = "Velocidad", tint = Color.White)
                 }
-                IconButton(onClick = { cycleResize() }) {
+                IconButton(onClick = { cycleAspect() }) {
                     Icon(Icons.Default.AspectRatio, contentDescription = "Ajuste de pantalla", tint = Color.White)
                 }
                 IconButton(onClick = { showStreamInfo = true }) {
@@ -424,7 +465,7 @@ fun PlayerScreen(
                 IconButton(onClick = { showSleep = true }) {
                     Icon(Icons.Default.Bedtime, contentDescription = "Temporizador", tint = Color.White)
                 }
-                if (pipEnabled) {
+                if (pipEnabled && manager.supportsPip) {
                     IconButton(onClick = { enterPip() }) {
                         Icon(Icons.Default.PictureInPictureAlt, contentDescription = "Ventana flotante", tint = Color.White)
                     }
@@ -433,7 +474,69 @@ fun PlayerScreen(
                     Icon(Icons.Default.Lock, contentDescription = "Bloquear controles", tint = Color.White)
                 }
             }
-        } else {
+        }
+
+        // Barra inferior: play/pausa, ±10s, progreso
+        if (showTopBar) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+            ) {
+                val max = durationMs.coerceAtLeast(1L)
+                val shown = scrubTo ?: positionMs
+                Slider(
+                    value = shown.toFloat().coerceIn(0f, max.toFloat()),
+                    onValueChange = {
+                        scrubTo = it.toLong()
+                        pokeControls()
+                    },
+                    onValueChangeFinished = {
+                        scrubTo?.let { manager.seekTo(it) }
+                        scrubTo = null
+                        pokeControls()
+                    },
+                    valueRange = 0f..max.toFloat(),
+                    enabled = durationMs > 0,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { togglePlay() }) {
+                        Icon(
+                            if (isPlaying) Icons.Default.Pause else Icons.Default.Play,
+                            contentDescription = if (isPlaying) "Pausar" else "Reproducir",
+                            tint = Color.White,
+                        )
+                    }
+                    IconButton(onClick = { seekBy(-10_000) }) {
+                        Icon(Icons.Default.FastRewind, contentDescription = "Retroceder 10 segundos", tint = Color.White)
+                    }
+                    IconButton(onClick = { seekBy(10_000) }) {
+                        Icon(Icons.Default.FastForward, contentDescription = "Adelantar 10 segundos", tint = Color.White)
+                    }
+                    Text(
+                        text = if (durationMs > 0) {
+                            "${formatMs(shown)} / ${formatMs(durationMs)}"
+                        } else {
+                            "${formatMs(shown)} · EN VIVO"
+                        },
+                        color = Color.White,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = if (speed % 1f == 0f) "${speed.toInt()}x" else "${speed}x",
+                        color = Color.White.copy(alpha = 0.8f),
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+
+        // Botón de desbloqueo cuando está bloqueado
+        if (locked) {
             IconButton(
                 onClick = { locked = false },
                 modifier = Modifier
@@ -445,21 +548,8 @@ fun PlayerScreen(
         }
 
         // Indicador de gesto (volumen / brillo / seek)
-        indicator?.let { ind ->
-            Card(
-                modifier = Modifier.align(Alignment.Center),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.7f)),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(ind.icon, contentDescription = null, tint = Color.White)
-                    Spacer(Modifier.width(8.dp))
-                    Text(ind.text, color = Color.White)
-                }
-            }
+        Box(modifier = Modifier.align(Alignment.Center)) {
+            PlayerIndicatorCard(indicator)
         }
     }
 
@@ -494,7 +584,8 @@ fun PlayerScreen(
             current = speed,
             onSelect = {
                 speed = it
-                player.setPlaybackSpeed(it)
+                manager.setRate(it)
+                pokeControls()
             },
             onDismiss = { showSpeed = false },
         )

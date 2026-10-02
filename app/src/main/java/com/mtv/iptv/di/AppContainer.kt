@@ -19,6 +19,8 @@ import com.mtv.iptv.data.repository.ServerRepository
 import com.mtv.iptv.data.repository.SpeedTestHistoryRepository
 import com.mtv.iptv.player.PlayerManager
 import com.mtv.iptv.player.downloads.DownloadModule
+import com.mtv.iptv.player.vlc.VlcPlayer
+import com.mtv.iptv.player.vlc.VlcPlayerFactory
 import com.mtv.iptv.util.CrashReporter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +75,27 @@ class AppContainer(appContext: Context) {
     val playerManager: PlayerManager by _playerManager
 
     /**
+     * v1.3: motor de reproducción libVLC. Se crea vía [VlcPlayerFactory]
+     * (reflexión contra `player.vlc.VlcPlayerManager`) para que la UI compile
+     * sin la implementación concreta en el árbol; el integrador conecta la
+     * implementación real del otro worker. Si la clase no existe, el primer
+     * acceso lanza ClassNotFoundException.
+     */
+    private val _vlcPlayer = lazy {
+        VlcPlayerFactory.create(appContext, playbackRepository)
+    }
+    val vlcPlayer: VlcPlayer by _vlcPlayer
+
+    /** Detiene el motor VLC sin inicializarlo si nunca se usó. */
+    fun stopVlcIfRunning() {
+        if (!_vlcPlayer.isInitialized()) return
+        try {
+            _vlcPlayer.value.stop()
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
      * ImageLoader de Coil (singleton de la app) con caché de memoria
      * ACOTADO: ~10% del heap, con piso de 16 MB y tope de 64 MB, para que
      * los pósters no se coman la RAM en dispositivos chicos (el default de
@@ -106,6 +129,22 @@ class AppContainer(appContext: Context) {
      * al volver; un release total lo dejaría inservible.
      */
     fun onAppBackgrounded(scope: CoroutineScope) {
+        if (_vlcPlayer.isInitialized()) {
+            val vlc = _vlcPlayer.value
+            scope.launch {
+                try {
+                    vlc.savePosition()
+                } catch (_: Exception) {
+                    // Sin posición que guardar (p. ej. nunca se reprodujo nada).
+                }
+                withContext(Dispatchers.Main) {
+                    try {
+                        vlc.stop()
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+        }
         if (!_playerManager.isInitialized()) return
         val pm = _playerManager.value
         scope.launch {

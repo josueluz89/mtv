@@ -58,8 +58,6 @@ object Routes {
     const val FAVORITES = "favorites?kind={kind}"
     const val SECTION = "section/{kind}"
     const val BROWSE = "browse/{kind}/{categoryId}/{categoryName}"
-    const val VOD = "vod/{streamId}"
-    const val SERIES_DETAIL = "series/{seriesId}"
     const val DOWNLOADS = "downloads"
     const val ADD_USER = "add_user"
     const val ACTOR = "actor/{personId}"
@@ -73,8 +71,6 @@ object Routes {
     fun browse(kind: String, categoryId: String, categoryName: String) =
         "browse/$kind/$categoryId/${Uri.encode(categoryName)}"
 
-    fun vod(streamId: Int) = "vod/$streamId"
-    fun series(seriesId: Int) = "series/$seriesId"
     fun v12movie(streamId: Int) = "v12_movie/$streamId"
     fun v12serie(seriesId: Int) = "v12_serie/$seriesId"
     fun actor(personId: Int) = "actor/$personId"
@@ -265,29 +261,6 @@ fun MobileNav() {
                     onBack = { navController.popBackStack() },
                     onVod = { navController.navigate(Routes.v12movie(it)) },
                     onSeries = { navController.navigate(Routes.v12serie(it)) },
-                )
-            }
-            composable(
-                route = Routes.VOD,
-                arguments = listOf(navArgument("streamId") { type = NavType.IntType }),
-            ) { entry ->
-                VodDetailScreen(
-                    streamId = entry.arguments?.getInt("streamId") ?: 0,
-                    onBack = { navController.popBackStack() },
-                    onVod = { navController.navigate(Routes.vod(it)) },
-                    onActor = { navController.navigate(Routes.actor(it)) },
-                    onCompany = { navController.navigate(Routes.company(it)) },
-                )
-            }
-            composable(
-                route = Routes.SERIES_DETAIL,
-                arguments = listOf(navArgument("seriesId") { type = NavType.IntType }),
-            ) { entry ->
-                SeriesDetailScreen(
-                    seriesId = entry.arguments?.getInt("seriesId") ?: 0,
-                    onBack = { navController.popBackStack() },
-                    onActor = { navController.navigate(Routes.actor(it)) },
-                    onCompany = { navController.navigate(Routes.company(it)) },
                 )
             }
             composable(Routes.DOWNLOADS) {

@@ -105,6 +105,32 @@ class DownloadModule(appContext: Context) {
     }
 
     /**
+     * v1.3: resuelve el archivo local de una descarga para reproducirlo con
+     * libVLC, que NO comparte el caché de Media3 (el PlayerManager viejo leía
+     * del caché automáticamente vía CacheDataSource; VLC necesita el archivo
+     * físico).
+     *
+     * Recorre las spans en caché de la [url]: si cubren el contenido desde el
+     * byte 0 sin huecos y están en un único archivo, lo devuelve; si no,
+     * null (en ese caso se reproduce la URL remota). Las descargas adaptativas
+     * (HLS/DASH) guardan segmentos sueltos, así que devuelven null y se
+     * reproducen por red; las progresivas completas devuelven el archivo.
+     */
+    fun localPlaybackFile(url: String): File? = try {
+        val spans = cache.getCachedSpans(url).sortedBy { it.position }
+        if (spans.isEmpty()) return null
+        var expected = 0L
+        for (span in spans) {
+            if (!span.isCached || span.position != expected || span.isOpenEnded) return null
+            expected = span.position + span.length
+        }
+        val files = spans.mapNotNull { it.file }.distinct()
+        if (files.size != 1) null else files.first().takeIf { it.exists() }
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
      * Inicia una descarga. El id del request es el [mediaKey] (ej. "vod:123").
      * Para HLS/DASH usa DownloadHelper con el límite de calidad elegido;
      * para mp4 progresivo descarga directa.

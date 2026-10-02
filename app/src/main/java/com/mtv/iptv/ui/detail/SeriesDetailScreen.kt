@@ -1,5 +1,3 @@
-@file:OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
-
 package com.mtv.iptv.ui.detail
 
 import androidx.compose.foundation.background
@@ -27,6 +25,10 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -47,10 +49,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button as TvButton
-import androidx.tv.material3.ButtonDefaults as TvButtonDefaults
-import androidx.tv.material3.Card as TvCard
-import androidx.tv.material3.CardDefaults as TvCardDefaults
 import coil.compose.AsyncImage
 import com.mtv.iptv.PlayerActivity
 import com.mtv.iptv.data.local.db.FavoriteEntity
@@ -66,7 +64,6 @@ import com.mtv.iptv.ui.common.MtvOnBg
 import com.mtv.iptv.ui.common.MtvOnVariant
 import com.mtv.iptv.ui.common.MtvRed
 import com.mtv.iptv.ui.common.MtvSurface
-import com.mtv.iptv.ui.common.MtvSurfaceHigh
 import com.mtv.iptv.ui.common.MtvSurfaceVariant
 import com.mtv.iptv.ui.common.MtvUiTheme
 import com.mtv.iptv.ui.common.PrimaryButton
@@ -404,13 +401,11 @@ fun SeriesDetailScreen(
                         ) {
                             items(seasons, key = { it }) { s ->
                                 val selected = s == selectedSeason
-                                TvButton(
+                                Button(
                                     onClick = { selectedSeason = s },
-                                    colors = TvButtonDefaults.colors(
+                                    colors = ButtonDefaults.buttonColors(
                                         containerColor = if (selected) MtvRed else MtvSurfaceVariant,
                                         contentColor = if (selected) Color.White else MtvOnBg,
-                                        focusedContainerColor = if (selected) MtvRed else MtvSurfaceHigh,
-                                        focusedContentColor = Color.White,
                                     ),
                                 ) {
                                     Text("T$s")
@@ -437,13 +432,13 @@ fun SeriesDetailScreen(
                         RowTitle("Trailers")
                     }
                     item {
-                        TvCard(
+                        Card(
                             onClick = { openYoutube(context, trailerKey) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp),
-                            shape = TvCardDefaults.shape(RoundedCornerShape(16.dp)),
-                            colors = TvCardDefaults.colors(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
                                 containerColor = MtvSurface,
                                 contentColor = MtvOnBg,
                             ),
@@ -514,13 +509,13 @@ private fun EpisodeRow(
     val repo = container.xtreamRepository
     val epTitle = episode.title.ifBlank { "Episodio ${episode.episodeNum}" }
 
-    TvCard(
+    Card(
         onClick = onPlay,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
-        shape = TvCardDefaults.shape(RoundedCornerShape(12.dp)),
-        colors = TvCardDefaults.colors(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
             containerColor = MtvSurface,
             contentColor = MtvOnBg,
         ),
