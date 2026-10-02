@@ -17,6 +17,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromStream
+import java.io.File
 
 data class XtreamSession(
     val server: ServerEntity,
@@ -33,7 +34,14 @@ sealed interface LoginResult {
     data class NetworkError(val message: String) : LoginResult
 }
 
-class XtreamRepository(private val client: XtreamClient) {
+class XtreamRepository(
+    private val client: XtreamClient,
+    /**
+     * Carpeta base para el caché persistente del catálogo. Si es null no
+     * se usa disco (solo memoria). AppContainer la fija en filesDir.
+     */
+    private val cacheDir: File? = null,
+) {
 
     companion object {
         /**
@@ -246,6 +254,52 @@ class XtreamRepository(private val client: XtreamClient) {
         clearCache()
     }
 
+    /**
+     * Descarga forzada del catálogo completo (categorías + listas "all"),
+     * reemplazando memoria y disco. Devuelve false si falló la red (en ese
+     * caso se conservan los datos viejos). La usan el refresco manual y el
+     * Worker de segundo plano.
+     */
+    suspend fun forceRefreshCatalog(): Boolean = withContext(Dispatchers.IO) {
+        val liveCats: List<XtreamCategory>
+        val vodCats: List<XtreamCategory>
+        val seriesCats: List<XtreamCategory>
+        val live: List<XtreamLiveStream>
+        val vod: List<XtreamVodStream>
+        val series: List<XtreamSeries>
+        try {
+            liveCats = fetchList("get_live_categories", XtreamCategory.serializer())
+            vodCats = fetchList("get_vod_categories", XtreamCategory.serializer())
+            seriesCats = fetchList("get_series_categories", XtreamCategory.serializer())
+            live = fetchList("get_live_streams", XtreamLiveStream.serializer())
+            vod = fetchList("get_vod_streams", XtreamVodStream.serializer())
+            series = fetchList("get_series", XtreamSeries.serializer())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@withContext false
+        }
+        // Reemplazar memoria.
+        catalogMutex.withLock {
+            liveCategoriesCache.clear(); liveCategoriesCache += liveCats
+            vodCategoriesCache.clear(); vodCategoriesCache += vodCats
+            seriesCategoriesCache.clear(); seriesCategoriesCache += seriesCats
+            liveStreamsCache.clear(); liveStreamsCache["all"] = live
+            vodStreamsCache.clear(); vodStreamsCache["all"] = vod
+            seriesCache.clear(); seriesCache["all"] = series
+            vodTitleIndex = null
+            seriesTitleIndex = null
+        }
+        // Reemplazar disco.
+        if (liveCats.isNotEmpty()) writeDisk("cat_live", liveCats, XtreamCategory.serializer())
+        if (vodCats.isNotEmpty()) writeDisk("cat_vod", vodCats, XtreamCategory.serializer())
+        if (seriesCats.isNotEmpty()) writeDisk("cat_series", seriesCats, XtreamCategory.serializer())
+        if (live.isNotEmpty()) writeDisk("live_all", live, XtreamLiveStream.serializer())
+        if (vod.isNotEmpty()) writeDisk("vod_all", vod, XtreamVodStream.serializer())
+        if (series.isNotEmpty()) writeDisk("series_all", series, XtreamSeries.serializer())
+        true
+    }
+
     private fun clearCache() {
         liveCategoriesCache.clear()
         vodCategoriesCache.clear()
@@ -261,44 +315,105 @@ class XtreamRepository(private val client: XtreamClient) {
     private fun cacheKey(categoryId: String?): String =
         categoryId?.takeIf { it.isNotBlank() } ?: "all"
 
+    // ---------------- Caché persistente en disco ----------------
+    //
+    // "La información de la lista tiene que quedar guardada, no descargar
+    // siempre" (dueño): además del caché en memoria, las listas se guardan
+    // como JSON en filesDir/catalog/server_<id>/. La UI lee memoria →
+    // disco → red; solo el refresco (manual, por frecuencia o del Worker)
+    // vuelve a descargar.
+
+    /** Carpeta del caché en disco para la sesión actual (una por servidor). */
+    private fun diskDir(): File? {
+        val base = cacheDir ?: return null
+        val id = session?.server?.id ?: return null
+        return File(base, "server_$id").also { it.mkdirs() }
+    }
+
+    private suspend fun <T> readDisk(name: String, serializer: KSerializer<T>): List<T>? =
+        withContext(Dispatchers.IO) {
+            val file = diskDir()?.let { File(it, "$name.json") } ?: return@withContext null
+            if (!file.exists()) return@withContext null
+            try {
+                client.json.decodeFromString(ListSerializer(serializer), file.readText())
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    private suspend fun <T> writeDisk(name: String, list: List<T>, serializer: KSerializer<T>) =
+        withContext(Dispatchers.IO) {
+            val dir = diskDir() ?: return@withContext
+            try {
+                File(dir, "$name.json")
+                    .writeText(client.json.encodeToString(ListSerializer(serializer), list))
+            } catch (_: Exception) {
+            }
+        }
+
     private fun requireSession(): XtreamSession =
         session ?: throw IllegalStateException("Sin sesión Xtream")
 
     // ---------------- Categorías ----------------
 
     suspend fun getLiveCategories(): List<XtreamCategory> = withContext(Dispatchers.IO) {
-        if (liveCategoriesCache.isEmpty()) {
-            liveCategoriesCache += fetchListOrEmpty("get_live_categories", XtreamCategory.serializer())
+        if (liveCategoriesCache.isNotEmpty()) return@withContext liveCategoriesCache.toList()
+        // Disco: datos guardados (la UI abre al instante, aunque sean viejos).
+        readDisk("cat_live", XtreamCategory.serializer())?.let { disk ->
+            liveCategoriesCache += disk
+            return@withContext disk
         }
-        liveCategoriesCache.toList()
+        // Red: los fallos no se cachean (lista vacía, la UI reintenta).
+        val fresh = fetchListOrEmpty("get_live_categories", XtreamCategory.serializer())
+        if (fresh.isNotEmpty()) {
+            liveCategoriesCache += fresh
+            writeDisk("cat_live", fresh, XtreamCategory.serializer())
+        }
+        fresh
     }
 
     suspend fun getVodCategories(): List<XtreamCategory> = withContext(Dispatchers.IO) {
-        if (vodCategoriesCache.isEmpty()) {
-            vodCategoriesCache += fetchListOrEmpty("get_vod_categories", XtreamCategory.serializer())
+        if (vodCategoriesCache.isNotEmpty()) return@withContext vodCategoriesCache.toList()
+        readDisk("cat_vod", XtreamCategory.serializer())?.let { disk ->
+            vodCategoriesCache += disk
+            return@withContext disk
         }
-        vodCategoriesCache.toList()
+        val fresh = fetchListOrEmpty("get_vod_categories", XtreamCategory.serializer())
+        if (fresh.isNotEmpty()) {
+            vodCategoriesCache += fresh
+            writeDisk("cat_vod", fresh, XtreamCategory.serializer())
+        }
+        fresh
     }
 
     suspend fun getSeriesCategories(): List<XtreamCategory> = withContext(Dispatchers.IO) {
-        if (seriesCategoriesCache.isEmpty()) {
-            seriesCategoriesCache += fetchListOrEmpty("get_series_categories", XtreamCategory.serializer())
+        if (seriesCategoriesCache.isNotEmpty()) return@withContext seriesCategoriesCache.toList()
+        readDisk("cat_series", XtreamCategory.serializer())?.let { disk ->
+            seriesCategoriesCache += disk
+            return@withContext disk
         }
-        seriesCategoriesCache.toList()
+        val fresh = fetchListOrEmpty("get_series_categories", XtreamCategory.serializer())
+        if (fresh.isNotEmpty()) {
+            seriesCategoriesCache += fresh
+            writeDisk("cat_series", fresh, XtreamCategory.serializer())
+        }
+        fresh
     }
 
     // ---------------- Contenido (cacheado por sesión) ----------------
 
     /**
-     * Lista completa de streams en vivo de una categoría. Firma original
-     * intacta para la UI; ahora se descarga una sola vez por sesión y las
-     * llamadas siguientes se sirven del caché. Los fallos de red NO se
+     * Lista completa de streams en vivo de una categoría. Orden de lectura:
+     * memoria → disco (datos guardados) → red. Los fallos de red NO se
      * cachean: devuelven lista vacía (como antes) y el reintento de la UI
      * vuelve a descargar.
      */
     suspend fun getLiveStreams(categoryId: String? = null): List<XtreamLiveStream> {
         val key = cacheKey(categoryId)
         liveStreamsCache[key]?.let { return it }
+        readDisk("live_$key", XtreamLiveStream.serializer())?.let { disk ->
+            return catalogMutex.withLock { liveStreamsCache.getOrPut(key) { disk } }
+        }
         val list = try {
             fetchList(
                 "get_live_streams",
@@ -310,17 +425,20 @@ class XtreamRepository(private val client: XtreamClient) {
         } catch (e: Exception) {
             return emptyList()
         }
+        if (list.isNotEmpty()) writeDisk("live_$key", list, XtreamLiveStream.serializer())
         return catalogMutex.withLock { liveStreamsCache.getOrPut(key) { list } }
     }
 
     /**
-     * Lista completa de películas de una categoría. Firma original intacta
-     * para la UI; ahora se descarga una sola vez por sesión. Los fallos de
-     * red NO se cachean (ver [getLiveStreams]).
+     * Lista completa de películas de una categoría. Orden de lectura:
+     * memoria → disco → red (ver [getLiveStreams]).
      */
     suspend fun getVodStreams(categoryId: String? = null): List<XtreamVodStream> {
         val key = cacheKey(categoryId)
         vodStreamsCache[key]?.let { return it }
+        readDisk("vod_$key", XtreamVodStream.serializer())?.let { disk ->
+            return catalogMutex.withLock { vodStreamsCache.getOrPut(key) { disk } }
+        }
         val list = try {
             fetchList(
                 "get_vod_streams",
@@ -332,17 +450,20 @@ class XtreamRepository(private val client: XtreamClient) {
         } catch (e: Exception) {
             return emptyList()
         }
+        if (list.isNotEmpty()) writeDisk("vod_$key", list, XtreamVodStream.serializer())
         return catalogMutex.withLock { vodStreamsCache.getOrPut(key) { list } }
     }
 
     /**
-     * Lista completa de series de una categoría. Firma original intacta para
-     * la UI; ahora se descarga una sola vez por sesión. Los fallos de red NO
-     * se cachean (ver [getLiveStreams]).
+     * Lista completa de series de una categoría. Orden de lectura:
+     * memoria → disco → red (ver [getLiveStreams]).
      */
     suspend fun getSeries(categoryId: String? = null): List<XtreamSeries> {
         val key = cacheKey(categoryId)
         seriesCache[key]?.let { return it }
+        readDisk("series_$key", XtreamSeries.serializer())?.let { disk ->
+            return catalogMutex.withLock { seriesCache.getOrPut(key) { disk } }
+        }
         val list = try {
             fetchList(
                 "get_series",
@@ -354,6 +475,7 @@ class XtreamRepository(private val client: XtreamClient) {
         } catch (e: Exception) {
             return emptyList()
         }
+        if (list.isNotEmpty()) writeDisk("series_$key", list, XtreamSeries.serializer())
         return catalogMutex.withLock { seriesCache.getOrPut(key) { list } }
     }
 

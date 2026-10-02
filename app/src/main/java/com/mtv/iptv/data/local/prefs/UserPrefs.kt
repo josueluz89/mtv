@@ -26,6 +26,42 @@ class UserPrefs(private val context: Context) {
         context.dataStore.edit { it[lastServerIdKey] = id }
     }
 
+    private val lastCatalogRefreshKey = longPreferencesKey("last_catalog_refresh")
+
+    /**
+     * Marca de tiempo del último refresco automático del catálogo.
+     * La usan el Worker periódico y el refresco al volver a primer plano
+     * para no descargar de más.
+     */
+    suspend fun getLastCatalogRefresh(): Long =
+        context.dataStore.data.map { it[lastCatalogRefreshKey] ?: 0L }.first()
+
+    suspend fun setLastCatalogRefresh(value: Long) {
+        context.dataStore.edit { it[lastCatalogRefreshKey] = value }
+    }
+
+    private val catalogFreqKey = stringPreferencesKey("catalog_refresh_freq")
+    private val catalogBackgroundKey = booleanPreferencesKey("catalog_background")
+
+    /**
+     * Frecuencia de actualización del catálogo: "6h" | "12h" | "24h" | "manual".
+     * "manual" = solo con el botón "Actualizar ahora".
+     */
+    val catalogFreq: Flow<String> =
+        context.dataStore.data.map { it[catalogFreqKey] ?: "12h" }
+
+    /** Si la actualización en segundo plano (Worker periódico) está activa. */
+    val catalogBackground: Flow<Boolean> =
+        context.dataStore.data.map { it[catalogBackgroundKey] ?: true }
+
+    suspend fun setCatalogFreq(value: String) {
+        context.dataStore.edit { it[catalogFreqKey] = value }
+    }
+
+    suspend fun setCatalogBackground(value: Boolean) {
+        context.dataStore.edit { it[catalogBackgroundKey] = value }
+    }
+
     /** Credenciales Xtream recordadas (para no pedirlas en cada arranque). */
     suspend fun getUsername(): String =
         context.dataStore.data.map { it[usernameKey].orEmpty() }.first()

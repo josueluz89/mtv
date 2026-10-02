@@ -34,9 +34,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
@@ -48,29 +48,38 @@ import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.player.PlayerManager
 import com.mtv.iptv.player.attachExternalSubtitle
 import com.mtv.iptv.ui.common.MtvOnBg
-import com.mtv.iptv.ui.common.MtvOnVariant
 import com.mtv.iptv.ui.common.MtvRed
 import com.mtv.iptv.ui.common.MtvSurfaceVariant
 import kotlinx.coroutines.launch
+import android.view.KeyEvent
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusable
+import androidx.compose.ui.input.key.onKeyEvent
+import kotlinx.coroutines.delay
 import java.io.File
 import java.text.NumberFormat
 import java.util.Locale
 
-// ---------------- Overlay del reproductor (TV) ----------------
-
 /**
- * Capa de opciones del reproductor en TV: título + botones (Audio,
- * Subtítulos, −10 s, +10 s). Se muestra y oculta JUNTO con el controlador
- * del PlayerView (el activity sincroniza [visible] con
- * setControllerVisibilityListener). Cuando no hay nada que mostrar, la vista
- * Android que hospeda este overlay se pone en GONE para que nunca robe el
- * foco del D-pad.
+ * Controlador del reproductor en TV, estilo TiviMate: el PlayerView nativo
+ * queda SIN su controlador (useController = false) y todo vive aquí —
+ * título, barra de progreso con tiempo actual/total, play/pausa,
+ * adelantar/retroceder y acceso directo a Audio y Subtítulos.
+ *
+ * Todo es operable con D-pad: OK muestra/oculta los controles; con los
+ * controles visibles el foco arranca en play/pausa, izquierda/derecha
+ * navega entre botones y sobre la barra de progreso salta ∓10 s.
+ * Los diálogos (audio, subtítulos, buscar subtítulo) ya eran D-pad.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvPlayerOverlay(
     title: String,
-    visible: Boolean,
     isLive: Boolean,
     manager: PlayerManager,
     subTmdbId: Int?,
@@ -80,54 +89,166 @@ fun TvPlayerOverlay(
     val context = LocalContext.current
     val container = LocalAppContainer.current
     val scope = rememberCoroutineScope()
-    val view = LocalView.current
+    val player = manager.player
 
+    var controlsVisible by remember { mutableStateOf(true) }
+    var interactionTick by remember { mutableStateOf(0) }
     var showAudio by remember { mutableStateOf(false) }
     var showSubs by remember { mutableStateOf(false) }
     var showSubSearch by remember { mutableStateOf(false) }
     val subtitleSize by container.userPrefs.subtitleSize.collectAsState(initial = "M")
     val openSubtitlesKey by container.userPrefs.openSubtitlesKey.collectAsState(initial = "")
 
+    // Posición/duración/estado: se sondea 2 veces por segundo.
+    var positionMs by remember { mutableStateOf(0L) }
+    var durationMs by remember { mutableStateOf(0L) }
+    var playing by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            positionMs = player.currentPosition.coerceAtLeast(0L)
+            durationMs = player.duration.let { if (it > 0) it else 0L }
+            playing = player.isPlaying
+            delay(500)
+        }
+    }
+
     val anyDialog = showAudio || showSubs || showSubSearch
-    LaunchedEffect(visible, anyDialog) {
-        view.visibility =
-            if (visible || anyDialog) android.view.View.VISIBLE else android.view.View.GONE
+    // Auto-ocultar: 4 s sin interacción (con un diálogo abierto no se oculta).
+    LaunchedEffect(controlsVisible, interactionTick, anyDialog) {
+        if (controlsVisible && !anyDialog) {
+            delay(4000)
+            controlsVisible = false
+        }
+    }
+
+    val playFocus = remember { FocusRequester() }
+    LaunchedEffect(controlsVisible, anyDialog) {
+        if (controlsVisible && !anyDialog) {
+            // Pequeña espera para que los botones ya estén compuestos.
+            delay(120)
+            try {
+                playFocus.requestFocus()
+            } catch (_: Exception) {
+            }
+        }
     }
 
     fun seekBy(deltaMs: Long) {
-        val p = manager.player
-        val target = (p.currentPosition + deltaMs).coerceAtLeast(0L)
-        val dur = p.duration
-        p.seekTo(if (dur > 0) target.coerceAtMost(dur) else target)
+        val target = (player.currentPosition + deltaMs).coerceAtLeast(0L)
+        val dur = player.duration
+        player.seekTo(if (dur > 0) target.coerceAtMost(dur) else target)
+        interactionTick++
     }
 
-    Box(Modifier.fillMaxSize()) {
-        if (visible && title.isNotBlank()) {
-            Text(
-                title,
-                style = MaterialTheme.typography.headlineSmall,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+    fun toggleControls() {
+        controlsVisible = !controlsVisible
+        interactionTick++
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onKeyEvent { event ->
+                if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
+                when (event.nativeKeyEvent.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
+                    KeyEvent.KEYCODE_NUMPAD_ENTER,
+                    -> {
+                        // Solo llega aquí si ningún botón/diálogo lo consumió.
+                        toggleControls()
+                        true
+                    }
+                    else -> false
+                }
+            },
+    ) {
+        if (controlsVisible && title.isNotBlank()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .align(Alignment.TopStart)
+                    .fillMaxWidth(0.7f)
                     .padding(28.dp)
                     .background(Color(0x99000000), RoundedCornerShape(10.dp))
                     .padding(horizontal = 16.dp, vertical = 10.dp),
-            )
+            ) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                val vf = player.videoFormat
+                if (vf != null && vf.width > 0 && vf.height > 0) {
+                    Spacer(Modifier.width(12.dp))
+                    TvQualityBadge("${vf.width}x${vf.height}")
+                }
+            }
         }
-        if (visible) {
-            Row(
+        if (controlsVisible) {
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 110.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color(0xCC000000)),
+                        ),
+                    )
+                    .padding(horizontal = 48.dp)
+                    .padding(top = 24.dp, bottom = 32.dp),
             ) {
-                Button(onClick = { showAudio = true }) { Text("Audio") }
-                Button(onClick = { showSubs = true }) { Text("Subtítulos") }
                 if (!isLive) {
-                    Button(onClick = { seekBy(-10_000L) }) { Text("−10 s") }
-                    Button(onClick = { seekBy(10_000L) }) { Text("+10 s") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            formatPlayerTime(positionMs),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color.White,
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        TvPlayerSeekBar(
+                            progress = if (durationMs > 0) {
+                                (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+                            } else 0f,
+                            onSeek = { seekBy(it) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Text(
+                            formatPlayerTime(durationMs),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color.White,
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (!isLive) {
+                        TvPlayerButton(label = "−10 s", onClick = { seekBy(-10_000L) })
+                    }
+                    Button(
+                        onClick = {
+                            if (playing) player.pause() else player.play()
+                            interactionTick++
+                        },
+                        modifier = Modifier.focusRequester(playFocus),
+                    ) {
+                        Icon(
+                            if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (playing) "Pausar" else "Reproducir",
+                        )
+                    }
+                    if (!isLive) {
+                        TvPlayerButton(label = "+10 s", onClick = { seekBy(10_000L) })
+                    }
+                    TvPlayerButton(label = "Audio", onClick = { showAudio = true })
+                    TvPlayerButton(label = "Subtítulos", onClick = { showSubs = true })
                 }
             }
         }
@@ -169,6 +290,85 @@ fun TvPlayerOverlay(
             onDismiss = { showSubSearch = false },
         )
     }
+}
+
+/** Etiqueta pequeña de calidad (p. ej. "1920x1080"), como en la referencia. */
+@Composable
+private fun TvQualityBadge(text: String) {
+    Box(
+        modifier = Modifier
+            .background(Color(0x66FFFFFF), RoundedCornerShape(4.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.bodySmall, color = Color.White)
+    }
+}
+
+/** Botón de texto del controlador (foco visible con D-pad). */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvPlayerButton(label: String, onClick: () -> Unit) {
+    Button(onClick = onClick) { Text(label) }
+}
+
+/**
+ * Barra de progreso enfocable: con foco, izquierda/derecha salta ∓10 s.
+ * El foco se resalta engrosando la barra.
+ */
+@Composable
+private fun TvPlayerSeekBar(
+    progress: Float,
+    onSeek: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val barH = if (focused) 10.dp else 6.dp
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .focusable()
+            .onFocusChanged { focused = it.isFocused }
+            .onKeyEvent { event ->
+                if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
+                when (event.nativeKeyEvent.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> {
+                        onSeek(-10_000L)
+                        true
+                    }
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        onSeek(10_000L)
+                        true
+                    }
+                    else -> false
+                }
+            },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(barH)
+                .background(Color.White.copy(alpha = 0.28f), RoundedCornerShape(4.dp)),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                .height(barH)
+                .background(
+                    if (focused) Color.White else MtvRed,
+                    RoundedCornerShape(4.dp),
+                ),
+        )
+    }
+}
+
+/** mm:ss o h:mm:ss. */
+private fun formatPlayerTime(ms: Long): String {
+    val totalSec = (ms / 1000).coerceAtLeast(0)
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    val s = totalSec % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
 // ---------------- Diálogos con foco visible (D-pad) ----------------

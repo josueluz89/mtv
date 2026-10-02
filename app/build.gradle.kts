@@ -29,8 +29,8 @@ android {
         applicationId = "com.mtv.iptv"
         minSdk = 26
         targetSdk = 34
-        versionCode = 15
-        versionName = "1.8.0"
+        versionCode = 16
+        versionName = "1.8.1"
 
         // FFmpeg solo se compila para ARM (teléfonos, Android TV, Firestick).
         ndk {
@@ -128,4 +128,7 @@ dependencies {
     // Corrutinas
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // Refresco automático del catálogo en segundo plano (cada 12 h).
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 }

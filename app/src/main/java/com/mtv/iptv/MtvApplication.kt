@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MtvApplication : Application() {
@@ -32,6 +33,23 @@ class MtvApplication : Application() {
             }
         }
         watchBackground()
+        rescheduleCatalogWorker()
+    }
+
+    /**
+     * (Re)programa el refresco automático del catálogo según los ajustes
+     * (frecuencia + interruptor de segundo plano). La llama también la
+     * pantalla de Ajustes al cambiar esos valores.
+     */
+    fun rescheduleCatalogWorker() {
+        appScope.launch {
+            try {
+                val freq = container.userPrefs.catalogFreq.first()
+                val background = container.userPrefs.catalogBackground.first()
+                com.mtv.iptv.work.CatalogWork.schedule(this@MtvApplication, freq, background)
+            } catch (_: Exception) {
+            }
+        }
     }
 
     /**
@@ -48,7 +66,18 @@ class MtvApplication : Application() {
         var started = 0
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {
+                val wasBackground = started == 0
                 started++
+                if (wasBackground) {
+                    // La app volvió a primer plano: refrescar el catálogo en
+                    // silencio si está viejo (ver AppContainer).
+                    appScope.launch {
+                        try {
+                            container.refreshCatalogIfStale()
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
             }
 
             override fun onActivityStopped(activity: Activity) {

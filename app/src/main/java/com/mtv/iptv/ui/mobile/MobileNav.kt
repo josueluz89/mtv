@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavController
+import androidx.navigation.NavOptionsBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -334,13 +335,23 @@ fun MobileNav() {
 
 /** Navegación de la barra inferior: una sola copia por destino, con estado. */
 private fun NavController.navigateBottom(route: String) {
-    navigate(route) {
+    val withRestore: NavOptionsBuilder.() -> Unit = {
         popUpTo(MAIN_GRAPH) {
             saveState = true
             inclusive = false
         }
         launchSingleTop = true
         restoreState = true
+    }
+    try {
+        navigate(route, withRestore)
+    } catch (e: IllegalStateException) {
+        // El estado guardado quedó obsoleto (grafo recreado, p. ej. tras
+        // reinstalar): en vez de crashear, navegar limpio sin restaurar.
+        navigate(route) {
+            popUpTo(MAIN_GRAPH) { inclusive = false }
+            launchSingleTop = true
+        }
     }
 }
 

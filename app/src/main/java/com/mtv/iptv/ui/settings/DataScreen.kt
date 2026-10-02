@@ -27,6 +27,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,10 +61,53 @@ fun DataScreen(onBack: () -> Unit) {
     var confirmDeleteDownloads by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // Actualización automática del catálogo.
+    val prefs = container.userPrefs
+    val catalogFreq by prefs.catalogFreq.collectAsState(initial = "12h")
+    val catalogBackground by prefs.catalogBackground.collectAsState(initial = true)
+    var freqDialog by remember { mutableStateOf(false) }
+    var refreshing by remember { mutableStateOf(false) }
+    var lastRefresh by remember { mutableStateOf(0L) }
+
     fun showMessage(msg: String) = scope.launch { snackbarHostState.showSnackbar(msg) }
 
     fun refreshUsedSpace() {
         usedBytes = calcUsedSpace(downloadManager)
+    }
+
+    fun rescheduleWorker() {
+        (context.applicationContext as? com.mtv.iptv.MtvApplication)?.rescheduleCatalogWorker()
+    }
+
+    fun refreshNow() = scope.launch {
+        refreshing = true
+        val ok = try {
+            container.xtreamRepository.forceRefreshCatalog()
+        } catch (_: Exception) {
+            false
+        }
+        if (ok) {
+            val now = System.currentTimeMillis()
+            try {
+                prefs.setLastCatalogRefresh(now)
+            } catch (_: Exception) {
+            }
+            container.catalogRefreshTick.value = now
+            lastRefresh = now
+            showMessage("Catálogo actualizado")
+        } else {
+            showMessage("No se pudo actualizar (revisá la sesión y la red)")
+        }
+        refreshing = false
+    }
+
+    LaunchedEffect(Unit) {
+        refreshUsedSpace()
+        lastRefresh = try {
+            prefs.getLastCatalogRefresh()
+        } catch (_: Exception) {
+            0L
+        }
     }
 
     fun clearCache() = scope.launch {
@@ -109,6 +153,27 @@ fun DataScreen(onBack: () -> Unit) {
                     subtitle = formatBytes(usedBytes),
                     onClick = null,
                 )
+                SettingsRow(
+                    title = "Actualizar catálogo ahora",
+                    subtitle = if (refreshing) "Actualizando…" else "Última actualización: ${timeAgo(lastRefresh)}",
+                    onClick = { if (!refreshing) refreshNow() },
+                )
+                SettingsRow(
+                    title = "Frecuencia de actualización",
+                    subtitle = com.mtv.iptv.work.CatalogWork.freqLabel(catalogFreq),
+                    onClick = { freqDialog = true },
+                )
+                SettingsSwitch(
+                    title = "Actualización en segundo plano",
+                    subtitle = if (catalogBackground) "El catálogo se actualiza solo" else "Apagada",
+                    checked = catalogBackground,
+                    onCheckedChange = { v ->
+                        scope.launch {
+                            prefs.setCatalogBackground(v)
+                            rescheduleWorker()
+                        }
+                    },
+                )
                 Button(
                     onClick = { confirmClearCache = true },
                     modifier = Modifier
@@ -133,6 +198,21 @@ fun DataScreen(onBack: () -> Unit) {
         }
     }
 
+    if (freqDialog) {
+        OptionsDialog(
+            title = "Frecuencia de actualización",
+            options = listOf("6h", "12h", "24h", "manual").map { it to com.mtv.iptv.work.CatalogWork.freqLabel(it) },
+            selected = catalogFreq,
+            onSelect = { v ->
+                scope.launch {
+                    prefs.setCatalogFreq(v)
+                    rescheduleWorker()
+                }
+                freqDialog = false
+            },
+            onDismiss = { freqDialog = false },
+        )
+    }
     if (confirmClearCache) {
         AlertDialog(
             onDismissRequest = { confirmClearCache = false },

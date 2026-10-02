@@ -22,6 +22,8 @@ import com.mtv.iptv.player.downloads.DownloadModule
 import com.mtv.iptv.util.CrashReporter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -36,7 +38,10 @@ class AppContainer(appContext: Context) {
     val httpClientProvider = HttpClientProvider()
 
     val xtreamClient = XtreamClient(httpClientProvider)
-    val xtreamRepository = XtreamRepository(xtreamClient).also {
+    val xtreamRepository = XtreamRepository(
+        xtreamClient,
+        java.io.File(appContext.filesDir, "catalog"),
+    ).also {
         it.eventLog = { msg -> CrashReporter.log(appContext, "xtream", msg) }
     }
 
@@ -116,6 +121,42 @@ class AppContainer(appContext: Context) {
             }
             // stop() toca el player: va en el hilo principal (ver PlayerManager).
             withContext(Dispatchers.Main) { pm.stop() }
+        }
+    }
+
+    /**
+     * Marca de tiempo del último refresco de catálogo. La UI de TV la
+     * observa para recargar sus listas cuando el refresco (manual,
+     * al volver a primer plano o del Worker) invalida el caché.
+     */
+    val catalogRefreshTick = MutableStateFlow(0L)
+
+    /**
+     * Refresca el catálogo en silencio si pasó la frecuencia configurada
+     * desde el último refresco. No hace nada sin sesión activa o en modo
+     * "manual". Nunca lanza.
+     */
+    suspend fun refreshCatalogIfStale() {
+        if (xtreamRepository.session == null) return
+        val freq = try {
+            userPrefs.catalogFreq.first()
+        } catch (_: Exception) {
+            "12h"
+        }
+        if (freq == "manual") return
+        val last = try {
+            userPrefs.getLastCatalogRefresh()
+        } catch (_: Exception) {
+            0L
+        }
+        if (System.currentTimeMillis() - last < com.mtv.iptv.work.CatalogWork.freqMillis(freq)) return
+        try {
+            if (xtreamRepository.forceRefreshCatalog()) {
+                val now = System.currentTimeMillis()
+                userPrefs.setLastCatalogRefresh(now)
+                catalogRefreshTick.value = now
+            }
+        } catch (_: Exception) {
         }
     }
 }

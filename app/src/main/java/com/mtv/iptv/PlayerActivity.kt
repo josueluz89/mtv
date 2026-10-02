@@ -7,14 +7,12 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
 import android.util.TypedValue
-import android.view.View
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.ui.CaptionStyleCompat
@@ -127,10 +125,10 @@ class PlayerActivity : ComponentActivity() {
                 setBackgroundColor(Color.BLACK)
             }
             val playerView = PlayerView(this).apply {
-                useController = true
-                setShowPreviousButton(false)
-                setShowNextButton(false)
-                controllerShowTimeoutMs = 4000
+                // Sin controlador nativo: todo el control vive en TvPlayerOverlay
+                // (Compose), 100% operable con D-pad y estilo TiviMate.
+                useController = false
+                isFocusable = false
             }
             playerView.player = manager.player
             // Estilo de subtítulos (Ajustes → Subtítulos) también en la rama TV.
@@ -177,15 +175,15 @@ class PlayerActivity : ComponentActivity() {
                     FrameLayout.LayoutParams.MATCH_PARENT,
                 ),
             )
-            // Overlay de opciones: visible solo junto con el controlador.
-            val overlayVisible = mutableStateOf(true)
+            // Overlay = controlador completo (título, progreso, transporte,
+            // audio, subtítulos). Maneja su propio mostrar/ocultar con OK.
             val overlayView = ComposeView(this).apply {
+                isFocusableInTouchMode = true
                 setContent {
                     CompositionLocalProvider(LocalAppContainer provides container) {
                         MtvUiTheme {
                             TvPlayerOverlay(
                                 title = title,
-                                visible = overlayVisible.value,
                                 isLive = isLive,
                                 manager = manager,
                                 subTmdbId = subTmdbId,
@@ -203,12 +201,9 @@ class PlayerActivity : ComponentActivity() {
                     FrameLayout.LayoutParams.MATCH_PARENT,
                 ),
             )
-            playerView.setControllerVisibilityListener(
-                PlayerView.ControllerVisibilityListener { visibility ->
-                    overlayVisible.value = visibility == View.VISIBLE
-                },
-            )
             setContentView(frame)
+            // El overlay necesita el foco para recibir OK del D-pad.
+            overlayView.requestFocus()
             // En TV se continúa automáticamente donde quedó (sin diálogo).
             lifecycleScope.launch {
                 val saved = container.playbackRepository.get(mediaKey)

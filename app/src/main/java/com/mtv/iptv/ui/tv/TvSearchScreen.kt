@@ -142,6 +142,7 @@ fun TvSearchScreen(
                                     "live:${s.streamId}", s.streamIcon,
                                 )
                                 },
+                                modifier = Modifier.width(140.dp),
                             )
                         }
                     }
@@ -159,6 +160,7 @@ fun TvSearchScreen(
                                 onClick = {
                                 onVod(v.streamId)
                                 },
+                                modifier = Modifier.width(140.dp),
                             )
                         }
                     }
@@ -176,6 +178,7 @@ fun TvSearchScreen(
                                 onClick = {
                                 onSeries(s.seriesId)
                                 },
+                                modifier = Modifier.width(140.dp),
                             )
                         }
                     }

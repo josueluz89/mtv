@@ -1,6 +1,7 @@
 package com.mtv.iptv.ui.tv
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -28,6 +29,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -54,6 +56,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -78,8 +81,11 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.mtv.iptv.data.local.db.FavoriteEntity
 import com.mtv.iptv.data.remote.tmdb.TitleCleaner
+import com.mtv.iptv.data.remote.tmdb.TmdbCastMember
 import com.mtv.iptv.data.remote.tmdb.TmdbClient
+import com.mtv.iptv.data.remote.tmdb.TmdbCreditItem
 import com.mtv.iptv.data.remote.tmdb.TmdbMedia
+import com.mtv.iptv.data.remote.tmdb.PersonDetail
 import com.mtv.iptv.data.remote.xtream.LoginResult
 import com.mtv.iptv.data.remote.xtream.SeriesInfoResponse
 import com.mtv.iptv.data.remote.xtream.VodInfoResponse
@@ -142,6 +148,7 @@ fun TvApp() {
                     section = entry.arguments?.getString("section") ?: "tv",
                     vodId = null,
                     seriesId = null,
+                    personId = null,
                     navController = navController,
                 )
             }
@@ -153,6 +160,7 @@ fun TvApp() {
                     section = "movies",
                     vodId = entry.arguments?.getInt("streamId"),
                     seriesId = null,
+                    personId = null,
                     navController = navController,
                 )
             }
@@ -164,6 +172,31 @@ fun TvApp() {
                     section = "series",
                     vodId = null,
                     seriesId = entry.arguments?.getInt("seriesId"),
+                    personId = null,
+                    navController = navController,
+                )
+            }
+            composable(
+                "tv_main/movies/person/{personId}",
+                arguments = listOf(navArgument("personId") { type = NavType.IntType }),
+            ) { entry ->
+                TvMainScreen(
+                    section = "movies",
+                    vodId = null,
+                    seriesId = null,
+                    personId = entry.arguments?.getInt("personId"),
+                    navController = navController,
+                )
+            }
+            composable(
+                "tv_main/series/person/{personId}",
+                arguments = listOf(navArgument("personId") { type = NavType.IntType }),
+            ) { entry ->
+                TvMainScreen(
+                    section = "series",
+                    vodId = null,
+                    seriesId = null,
+                    personId = entry.arguments?.getInt("personId"),
                     navController = navController,
                 )
             }
@@ -204,6 +237,7 @@ fun TvMainScreen(
     section: String,
     vodId: Int?,
     seriesId: Int?,
+    personId: Int?,
     navController: NavController,
 ) {
     Row(Modifier.fillMaxSize().background(MtvBg)) {
@@ -222,11 +256,17 @@ fun TvMainScreen(
             "tv" -> TvLiveMain()
             "movies" -> TvMoviesMain(
                 vodId = vodId,
+                personId = personId,
                 onVod = { navController.navigate("tv_main/movies/vod/$it") },
+                onSeries = { navController.navigate("tv_main/series/series/$it") },
+                onPerson = { navController.navigate("tv_main/movies/person/$it") },
             )
             "series" -> TvSeriesMain(
                 seriesId = seriesId,
+                personId = personId,
                 onSeries = { navController.navigate("tv_main/series/series/$it") },
+                onVod = { navController.navigate("tv_main/movies/vod/$it") },
+                onPerson = { navController.navigate("tv_main/series/person/$it") },
             )
             "search" -> Box(Modifier.weight(1f).fillMaxHeight()) {
                 TvSearchScreen(
@@ -466,15 +506,17 @@ fun TvLiveMain() {
     var groups by remember { mutableStateOf<List<XtreamCategory>>(emptyList()) }
     var selectedGroup by remember { mutableStateOf<XtreamCategory?>(null) }
     var channels by remember { mutableStateOf<List<XtreamLiveStream>>(emptyList()) }
+    // Se recarga cuando el refresco automático invalida el caché.
+    val refreshTick by container.catalogRefreshTick.collectAsState()
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(refreshTick) {
         try {
             groups = repo.getLiveCategories().distinctBy { it.categoryId }
             selectedGroup = groups.firstOrNull()
         } catch (e: Exception) {
         }
     }
-    LaunchedEffect(selectedGroup) {
+    LaunchedEffect(selectedGroup, refreshTick) {
         try {
             channels = repo.getLiveStreams(selectedGroup?.categoryId)
         } catch (e: Exception) {
@@ -707,7 +749,10 @@ private fun TvEpgRow(
 @Composable
 fun TvMoviesMain(
     vodId: Int?,
+    personId: Int?,
     onVod: (Int) -> Unit,
+    onSeries: (Int) -> Unit,
+    onPerson: (Int) -> Unit,
 ) {
     val container = LocalAppContainer.current
     val repo = container.xtreamRepository
@@ -715,8 +760,10 @@ fun TvMoviesMain(
     var folders by remember { mutableStateOf<List<Pair<XtreamCategory, Int>>>(emptyList()) }
     var selectedId by remember { mutableStateOf<String?>(null) } // null = todas
     var items by remember { mutableStateOf<List<XtreamVodStream>>(emptyList()) }
+    // Se recarga cuando el refresco automático invalida el caché.
+    val refreshTick by container.catalogRefreshTick.collectAsState()
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(refreshTick) {
         try {
             val categories = repo.getVodCategories().distinctBy { it.categoryId }
             val all = repo.getVodStreams(null)
@@ -730,7 +777,7 @@ fun TvMoviesMain(
         } catch (e: Exception) {
         }
     }
-    LaunchedEffect(selectedId) {
+    LaunchedEffect(selectedId, refreshTick) {
         try {
             items = repo.getVodStreams(selectedId)
         } catch (e: Exception) {
@@ -738,11 +785,20 @@ fun TvMoviesMain(
         }
     }
 
+    if (personId != null) {
+        TvPersonDetail(
+            personId = personId,
+            onVod = onVod,
+            onSeries = onSeries,
+        )
+        return
+    }
     if (vodId != null) {
         TvVodDetail(
             streamId = vodId,
             folderName = folders.firstOrNull { it.first.categoryId == selectedId }?.first?.categoryName,
             onVod = onVod,
+            onPerson = onPerson,
         )
         return
     }
@@ -761,7 +817,7 @@ fun TvMoviesMain(
             modifier = Modifier.width(300.dp).fillMaxHeight(),
         )
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(150.dp),
+            columns = GridCells.Fixed(6),
             modifier = Modifier.weight(1f).fillMaxHeight().background(MtvBg),
             contentPadding = PaddingValues(24.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
@@ -773,6 +829,7 @@ fun TvMoviesMain(
                     imageUrl = v.streamIcon.ifBlank { null },
                     rating = v.rating.toDoubleOrNull()?.takeIf { it > 0 },
                     onClick = { onVod(v.streamId) },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
@@ -787,7 +844,10 @@ fun TvMoviesMain(
 @Composable
 fun TvSeriesMain(
     seriesId: Int?,
+    personId: Int?,
     onSeries: (Int) -> Unit,
+    onVod: (Int) -> Unit,
+    onPerson: (Int) -> Unit,
 ) {
     val container = LocalAppContainer.current
     val repo = container.xtreamRepository
@@ -795,8 +855,10 @@ fun TvSeriesMain(
     var folders by remember { mutableStateOf<List<Pair<XtreamCategory, Int>>>(emptyList()) }
     var selectedId by remember { mutableStateOf<String?>(null) } // null = todas
     var items by remember { mutableStateOf<List<XtreamSeries>>(emptyList()) }
+    // Se recarga cuando el refresco automático invalida el caché.
+    val refreshTick by container.catalogRefreshTick.collectAsState()
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(refreshTick) {
         try {
             val categories = repo.getSeriesCategories().distinctBy { it.categoryId }
             val all = repo.getSeries(null)
@@ -810,7 +872,7 @@ fun TvSeriesMain(
         } catch (e: Exception) {
         }
     }
-    LaunchedEffect(selectedId) {
+    LaunchedEffect(selectedId, refreshTick) {
         try {
             items = repo.getSeries(selectedId)
         } catch (e: Exception) {
@@ -818,11 +880,20 @@ fun TvSeriesMain(
         }
     }
 
+    if (personId != null) {
+        TvPersonDetail(
+            personId = personId,
+            onVod = onVod,
+            onSeries = onSeries,
+        )
+        return
+    }
     if (seriesId != null) {
         TvSeriesDetail(
             seriesId = seriesId,
             folderName = folders.firstOrNull { it.first.categoryId == selectedId }?.first?.categoryName,
             onSeries = onSeries,
+            onPerson = onPerson,
         )
         return
     }
@@ -841,7 +912,7 @@ fun TvSeriesMain(
             modifier = Modifier.width(300.dp).fillMaxHeight(),
         )
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(150.dp),
+            columns = GridCells.Fixed(6),
             modifier = Modifier.weight(1f).fillMaxHeight().background(MtvBg),
             contentPadding = PaddingValues(24.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
@@ -853,6 +924,7 @@ fun TvSeriesMain(
                     imageUrl = s.cover.ifBlank { null },
                     rating = s.rating.toDoubleOrNull()?.takeIf { it > 0 },
                     onClick = { onSeries(s.seriesId) },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
@@ -870,10 +942,11 @@ fun TvPosterCard(
     imageUrl: String?,
     rating: Double?,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Card(
         onClick = onClick,
-        modifier = Modifier.width(160.dp),
+        modifier = modifier,
     ) {
         Column {
             Box {
@@ -912,6 +985,53 @@ fun TvPosterCard(
             )
         }
     }
+}
+
+/**
+ * Fila de reparto con foto circular. Cada actor es enfocable con D-pad
+ * y abre su ficha con filmografía.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun TvCastRow(
+    cast: List<TmdbCastMember>,
+    onActorClick: (Int) -> Unit,
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 36.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        items(cast, key = { it.id }) { member ->
+            Card(
+                onClick = { if (member.id != 0) onActorClick(member.id) },
+                modifier = Modifier.width(104.dp),
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(10.dp),
+                ) {
+                    AsyncImage(
+                        model = TmdbClient.profileUrl(member.profilePath),
+                        contentDescription = member.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(76.dp)
+                            .clip(CircleShape)
+                            .background(MtvSurfaceVariant),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        member.name,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MtvOnBg,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+    Spacer(Modifier.height(20.dp))
 }
 
 // ---------------- Detalle película (TV, estilo TiviMate) ----------------
@@ -974,6 +1094,7 @@ fun TvVodDetail(
     streamId: Int,
     folderName: String?,
     onVod: (Int) -> Unit,
+    onPerson: (Int) -> Unit,
 ) {
     val context = LocalContext.current
     val activity = context as? ComponentActivity
@@ -1011,7 +1132,7 @@ fun TvVodDetail(
     val rating = tmdb?.rating ?: 0.0
     val duration = formatDuration(tmdb?.runtimeMinutes)
     val genres = tmdb?.genres?.joinToString(", ").orEmpty()
-    val cast = tmdb?.cast?.take(8)?.joinToString(", ") { it.name }.orEmpty()
+    val castList = tmdb?.cast.orEmpty()
     val director = tmdb?.director.orEmpty()
     val trailerKey = tmdb?.trailerKey
     val metaLine = listOfNotNull(
@@ -1045,6 +1166,20 @@ fun TvVodDetail(
                     imageUrl = tmdb?.posterUrl ?: v.info.movieImage,
                 ),
             )
+        }
+    }
+
+    fun openSimilar(title: String) {
+        val cleaned = TitleCleaner.clean(title).title
+        if (cleaned.isBlank()) return
+        scope.launch {
+            try {
+                val match = repo.findVodByTitle(cleaned)
+                if (match != null) onVod(match.streamId)
+                else Toast.makeText(context, "No está disponible en tu servidor.", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "No se pudo buscar en tu servidor.", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -1088,20 +1223,6 @@ fun TvVodDetail(
                             Text(metaLine, style = MaterialTheme.typography.titleMedium, color = MtvOnBg)
                         }
                     }
-                    if (cast.isNotBlank()) {
-                        Spacer(Modifier.height(8.dp))
-                        Row {
-                            Text("Reparto ", style = MaterialTheme.typography.bodyLarge, color = MtvOnVariant)
-                            Text(
-                                cast,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MtvOnBg,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
                     if (director.isNotBlank()) {
                         Spacer(Modifier.height(4.dp))
                         Row {
@@ -1110,6 +1231,20 @@ fun TvVodDetail(
                         }
                     }
                 }
+            }
+        }
+        // Reparto: fila clickable (abre la ficha del actor con su filmografía).
+        if (castList.isNotEmpty()) {
+            item {
+                Text(
+                    "Reparto",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MtvOnBg,
+                    modifier = Modifier.padding(start = 36.dp, top = 12.dp, bottom = 8.dp),
+                )
+            }
+            item {
+                TvCastRow(cast = castList, onActorClick = onPerson)
             }
         }
         // Sinopsis.
@@ -1171,12 +1306,12 @@ fun TvVodDetail(
                 )
             }
         }
-        // Relacionadas.
+        // Más como esto (clickable: busca el título en el servidor).
         val similar = tmdb?.similar.orEmpty()
         if (similar.isNotEmpty()) {
             item {
                 Text(
-                    "Relacionadas",
+                    "Más como esto",
                     style = MaterialTheme.typography.headlineSmall,
                     color = MtvOnBg,
                     modifier = Modifier.padding(start = 36.dp, top = 8.dp, bottom = 12.dp),
@@ -1188,12 +1323,12 @@ fun TvVodDetail(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     items(similar, key = { it.id }) { s ->
-                        // Las similares no están en el proveedor: solo informativas.
                         TvPosterCard(
                             title = s.title.ifBlank { s.name },
                             imageUrl = TmdbClient.posterUrl(s.posterPath),
                             rating = s.voteAverage.takeIf { it > 0 },
-                            onClick = {},
+                            onClick = { openSimilar(s.title.ifBlank { s.name }) },
+                            modifier = Modifier.width(140.dp),
                         )
                     }
                 }
@@ -1211,6 +1346,7 @@ fun TvSeriesDetail(
     seriesId: Int,
     folderName: String?,
     onSeries: (Int) -> Unit,
+    onPerson: (Int) -> Unit,
 ) {
     val context = LocalContext.current
     val activity = context as? ComponentActivity
@@ -1250,7 +1386,7 @@ fun TvSeriesDetail(
         "${seasons.size} Temporada" + if (seasons.size == 1) "" else "s"
     } else ""
     val genres = tmdb?.genres?.joinToString(", ").orEmpty()
-    val cast = tmdb?.cast?.take(8)?.joinToString(", ") { it.name }.orEmpty()
+    val castList = tmdb?.cast.orEmpty()
     val director = tmdb?.director.orEmpty()
     val trailerKey = tmdb?.trailerKey
     val metaLine = listOfNotNull(
@@ -1288,6 +1424,20 @@ fun TvSeriesDetail(
                     imageUrl = tmdb?.posterUrl ?: nfo.info.cover,
                 ),
             )
+        }
+    }
+
+    fun openSimilar(title: String) {
+        val cleaned = TitleCleaner.clean(title).title
+        if (cleaned.isBlank()) return
+        scope.launch {
+            try {
+                val match = repo.findSeriesByTitle(cleaned)
+                if (match != null) onSeries(match.seriesId)
+                else Toast.makeText(context, "No está disponible en tu servidor.", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "No se pudo buscar en tu servidor.", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -1331,20 +1481,6 @@ fun TvSeriesDetail(
                             Text(metaLine, style = MaterialTheme.typography.titleMedium, color = MtvOnBg)
                         }
                     }
-                    if (cast.isNotBlank()) {
-                        Spacer(Modifier.height(8.dp))
-                        Row {
-                            Text("Reparto ", style = MaterialTheme.typography.bodyLarge, color = MtvOnVariant)
-                            Text(
-                                cast,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MtvOnBg,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
                     if (director.isNotBlank()) {
                         Spacer(Modifier.height(4.dp))
                         Row {
@@ -1353,6 +1489,20 @@ fun TvSeriesDetail(
                         }
                     }
                 }
+            }
+        }
+        // Reparto: fila clickable (abre la ficha del actor con su filmografía).
+        if (castList.isNotEmpty()) {
+            item {
+                Text(
+                    "Reparto",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MtvOnBg,
+                    modifier = Modifier.padding(start = 36.dp, top = 12.dp, bottom = 8.dp),
+                )
+            }
+            item {
+                TvCastRow(cast = castList, onActorClick = onPerson)
             }
         }
         // Sinopsis.
@@ -1448,6 +1598,187 @@ fun TvSeriesDetail(
                     }
                 }
                 Spacer(Modifier.height(28.dp))
+            }
+        }
+        // Más como esto (clickable: busca el título en el servidor).
+        val similar = tmdb?.similar.orEmpty()
+        if (similar.isNotEmpty()) {
+            item {
+                Text(
+                    "Más como esto",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MtvOnBg,
+                    modifier = Modifier.padding(start = 36.dp, top = 8.dp, bottom = 12.dp),
+                )
+            }
+            item {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 36.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    items(similar, key = { it.id }) { s ->
+                        TvPosterCard(
+                            title = s.title.ifBlank { s.name },
+                            imageUrl = TmdbClient.posterUrl(s.posterPath),
+                            rating = s.voteAverage.takeIf { it > 0 },
+                            onClick = { openSimilar(s.title.ifBlank { s.name }) },
+                            modifier = Modifier.width(140.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(28.dp))
+            }
+        }
+    }
+}
+
+// ---------------- Ficha de actor/actriz (TV) ----------------
+
+/**
+ * Ficha de actor/actriz en TV: foto, datos, biografía y filmografía.
+ * Tocar un título lo busca en el servidor Xtream y abre su detalle.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalTvFoundationApi::class)
+@Composable
+fun TvPersonDetail(
+    personId: Int,
+    onVod: (Int) -> Unit,
+    onSeries: (Int) -> Unit,
+) {
+    val context = LocalContext.current
+    val container = LocalAppContainer.current
+    val repo = container.xtreamRepository
+    val scope = rememberCoroutineScope()
+
+    var person by remember { mutableStateOf<PersonDetail?>(null) }
+    var loading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(personId) {
+        loading = true
+        person = try {
+            container.tmdbRepository.getPerson(personId)
+        } catch (e: Exception) {
+            null
+        }
+        loading = false
+    }
+
+    fun openCredit(item: TmdbCreditItem) {
+        val title = TitleCleaner.clean(item.displayTitle()).title
+        if (title.isBlank()) return
+        scope.launch {
+            try {
+                if (item.mediaType == "tv") {
+                    val match = repo.findSeriesByTitle(title)
+                    if (match != null) onSeries(match.seriesId)
+                    else Toast.makeText(context, "No está disponible en tu servidor.", Toast.LENGTH_SHORT).show()
+                } else {
+                    val match = repo.findVodByTitle(title)
+                    if (match != null) onVod(match.streamId)
+                    else Toast.makeText(context, "No está disponible en tu servidor.", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "No se pudo buscar en tu servidor.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    when {
+        loading -> Box(
+            modifier = Modifier.fillMaxSize().background(MtvBg),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Cargando…", style = MaterialTheme.typography.headlineSmall, color = MtvOnBg)
+        }
+        person == null -> Box(
+            modifier = Modifier.fillMaxSize().background(MtvBg),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("No se pudo cargar la información.", style = MaterialTheme.typography.headlineSmall, color = MtvOnBg)
+        }
+        else -> {
+            val d = person!!.details
+            val filmo = person!!.filmography
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().background(MtvBg),
+                contentPadding = PaddingValues(bottom = 32.dp),
+            ) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(36.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        AsyncImage(
+                            model = TmdbClient.profileUrl(d.profilePath),
+                            contentDescription = d.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .width(180.dp)
+                                .aspectRatio(2f / 3f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MtvSurfaceVariant),
+                        )
+                        Spacer(Modifier.width(28.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                d.name,
+                                style = MaterialTheme.typography.displaySmall,
+                                color = Color.White,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            if (d.birthday.isNotBlank()) {
+                                Text(
+                                    "Nacimiento: ${d.birthday}",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MtvOnVariant,
+                                )
+                            }
+                            if (d.placeOfBirth.isNotBlank()) {
+                                Text(
+                                    d.placeOfBirth,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MtvOnVariant,
+                                )
+                            }
+                            if (d.biography.isNotBlank()) {
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    d.biography,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MtvOnBg,
+                                    maxLines = 10,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+                if (filmo.isNotEmpty()) {
+                    item {
+                        Text(
+                            "Filmografía",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MtvOnBg,
+                            modifier = Modifier.padding(start = 36.dp, top = 8.dp, bottom = 12.dp),
+                        )
+                    }
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 36.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            items(filmo, key = { "${it.id}:${it.mediaType}" }) { item ->
+                                TvPosterCard(
+                                    title = item.displayTitle(),
+                                    imageUrl = TmdbClient.posterUrl(item.posterPath),
+                                    rating = item.voteAverage.takeIf { it > 0 },
+                                    onClick = { openCredit(item) },
+                                    modifier = Modifier.width(140.dp),
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
