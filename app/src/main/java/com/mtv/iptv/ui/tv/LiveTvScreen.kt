@@ -244,6 +244,7 @@ fun LiveTvScreen(onBack: () -> Unit) {
                         ExpandableCategoryCard(
                             group = group,
                             expanded = expandedId == group.id,
+                            showNumber = liveOrder == "proveedor",
                             onToggle = {
                                 expandedId = if (expandedId == group.id) null else group.id
                             },
@@ -260,6 +261,7 @@ fun LiveTvScreen(onBack: () -> Unit) {
 private fun ExpandableCategoryCard(
     group: LiveCategoryGroup,
     expanded: Boolean,
+    showNumber: Boolean,
     onToggle: () -> Unit,
     onChannel: (XtreamLiveStream) -> Unit,
 ) {
@@ -335,7 +337,7 @@ private fun ExpandableCategoryCard(
                     items(group.channels, key = { "${it.streamId}:${it.name}" }) { s ->
                         ChannelRow(
                             channel = s,
-                            showNumber = liveOrder == "proveedor",
+                            showNumber = showNumber,
                             onClick = { onChannel(s) },
                         )
                     }

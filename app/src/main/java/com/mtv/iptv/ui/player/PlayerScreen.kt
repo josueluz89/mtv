@@ -173,7 +173,7 @@ fun PlayerScreen(
         currentKey = "live:${channel.streamId}"
         currentTitle = channel.name
         resumeFrom = null
-        showIndicator(Icons.Default.List, "Canal: ${channel.name}")
+        indicator = Indicator(Icons.Default.List, "Canal: ${channel.name}")
     }
 
     /** Zapping por pasos: -1 anterior, +1 siguiente (con vuelta al inicio/fin). */
