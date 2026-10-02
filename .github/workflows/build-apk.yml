@@ -1,11 +1,19 @@
 name: build-apk
 
 # En push a main: compila el APK debug y lo deja como artifact.
+# En push de un tag v* (ej. v1.3.1): además publica un GitHub Release con el
+# APK siempre bajo el mismo nombre de archivo (mtv-latest.apk), para que el
+# link fijo https://github.com/josueluz89/mtv/releases/latest/download/mtv-latest.apk
+# siempre descargue la última versión sin cambiar nada.
 # Nota: NO usar actions/setup-android (v3 está roto); SDK manual con cmdline-tools.
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -39,3 +47,13 @@ jobs:
         with:
           name: mtv-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish GitHub release (solo tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk mtv-latest.apk
+          gh release create "${{ github.ref_name }}" mtv-latest.apk \
+            --title "MTV ${{ github.ref_name }}" \
+            --generate-notes
