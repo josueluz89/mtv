@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tema base para las activities; la UI real es Compose. -->
+    <style name="Theme.MTV" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/mtv_background</item>
+        <item name="android:statusBarColor">@color/mtv_background</item>
+        <item name="android:navigationBarColor">@color/mtv_background</item>
+    </style>
+</resources>

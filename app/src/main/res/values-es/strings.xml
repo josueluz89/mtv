@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MTV</string>
+    <string name="servers">Servidores</string>
+    <string name="connect">Conectar</string>
+    <string name="home">Inicio</string>
+    <string name="favorites">Favoritos</string>
+    <string name="continue_watching">Seguir viendo</string>
+    <string name="live">En vivo</string>
+    <string name="movies">Películas</string>
+    <string name="series">Series</string>
+    <string name="watch_now">Ver ahora</string>
+    <string name="trailer">Trailer</string>
+    <string name="cast">Reparto</string>
+    <string name="similar">Similares</string>
+    <string name="episodes">Episodios</string>
+    <string name="season">Temporada</string>
+    <string name="back">Atrás</string>
+    <string name="search">Buscar</string>
+</resources>
