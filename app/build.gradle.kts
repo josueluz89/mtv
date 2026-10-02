@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -9,7 +11,7 @@ plugins {
 // TMDB API key del dueño: NUNCA en texto plano en el repo.
 // Se lee de local.properties (tmdbApiKey, ignorado por git) o de la variable
 // de entorno TMDB_API_KEY (GitHub Secret en CI). Vacío = sin TMDB, sin crash.
-val localProps = java.util.Properties()
+val localProps = Properties()
 val localPropsFile = rootProject.file("local.properties")
 if (localPropsFile.exists()) {
     localPropsFile.inputStream().use { localProps.load(it) }
