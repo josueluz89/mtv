@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.TrackSelectionOverride
-import androidx.media3.exoplayer.DefaultTrackSelector
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.ExoPlayer
 import com.mtv.iptv.data.local.db.PlaybackEntity
 import com.mtv.iptv.data.repository.PlaybackRepository
@@ -86,7 +86,7 @@ class PlayerManager(
 
     fun textTracks(): List<TrackOption> = trackOptions(C.TRACK_TYPE_TEXT)
 
-    private fun trackOptions(@C.TrackType trackType: Int): List<TrackOption> {
+    private fun trackOptions(trackType: Int): List<TrackOption> {
         val out = mutableListOf<TrackOption>()
         val groups = player.currentTracks.groups
         for (gi in 0 until groups.size) {

@@ -31,9 +31,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.tv.foundation.ExperimentalTvFoundationApi
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.TvLazyRow
-import androidx.tv.foundation.lazy.list.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.tv.material3.Button
 import androidx.tv.material3.Card
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -145,7 +145,7 @@ fun TvServersScreen(onConnected: () -> Unit) {
         }
     }
 
-    TvLazyColumn(
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -239,7 +239,7 @@ fun TvBrowseScreen(
         }
     }
 
-    TvLazyColumn(
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(32.dp),
         verticalArrangement = Arrangement.spacedBy(28.dp),
@@ -256,7 +256,7 @@ fun TvBrowseScreen(
         if (continueWatching.isNotEmpty()) {
             item { Text("Seguir viendo", style = MaterialTheme.typography.headlineSmall) }
             item {
-                TvLazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(continueWatching, key = { it.mediaKey }) { item ->
                         TvMediaCard(title = item.name, imageUrl = item.imageUrl.ifBlank { null }) {
                             PlayerActivity.start(context, item.url, item.name, item.mediaKey, item.imageUrl)
@@ -268,7 +268,7 @@ fun TvBrowseScreen(
         if (liveItems.isNotEmpty()) {
             item { Text("En vivo", style = MaterialTheme.typography.headlineSmall) }
             item {
-                TvLazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(liveItems, key = { it.streamId }) { s ->
                         TvMediaCard(title = s.name, imageUrl = s.streamIcon.ifBlank { null }) {
                             PlayerActivity.start(context, repo.liveUrl(s.streamId), s.name, "live:${s.streamId}", s.streamIcon)
@@ -280,7 +280,7 @@ fun TvBrowseScreen(
         if (vodItems.isNotEmpty()) {
             item { Text("Películas", style = MaterialTheme.typography.headlineSmall) }
             item {
-                TvLazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(vodItems, key = { it.streamId }) { v ->
                         TvMediaCard(title = v.name, imageUrl = v.streamIcon.ifBlank { null }) {
                             onVod(v.streamId)
@@ -292,7 +292,7 @@ fun TvBrowseScreen(
         if (seriesItems.isNotEmpty()) {
             item { Text("Series", style = MaterialTheme.typography.headlineSmall) }
             item {
-                TvLazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(seriesItems, key = { it.seriesId }) { s ->
                         TvMediaCard(title = s.name, imageUrl = s.cover.ifBlank { null }) {
                             onSeries(s.seriesId)
@@ -355,7 +355,7 @@ fun TvVodDetailsScreen(streamId: Int, onBack: () -> Unit) {
     val overview = tmdb?.overview?.takeIf { it.isNotBlank() } ?: vi?.info?.plot.orEmpty()
     val year = tmdb?.year ?: TitleCleaner.yearFromDate(vi?.info?.releasedate.orEmpty())
 
-    TvLazyColumn(
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -430,7 +430,7 @@ fun TvSeriesDetailsScreen(seriesId: Int, onBack: () -> Unit) {
     val seasons = si?.episodes?.keys?.sortedBy { it.toIntOrNull() ?: 0 }.orEmpty()
     val episodes = selectedSeason?.let { si?.episodes?.get(it).orEmpty() }?.sortedBy { it.episodeNum }.orEmpty()
 
-    TvLazyColumn(
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -459,7 +459,7 @@ fun TvSeriesDetailsScreen(seriesId: Int, onBack: () -> Unit) {
                     if (seasons.size > 1) {
                         Text("Temporada", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(8.dp))
-                        TvLazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(seasons) { s ->
                                 Button(onClick = { selectedSeason = s }) {
                                     Text(if (s == selectedSeason) "● $s" else s)
