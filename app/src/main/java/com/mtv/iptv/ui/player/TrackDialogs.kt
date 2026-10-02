@@ -1,6 +1,5 @@
 package com.mtv.iptv.ui.player
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.mtv.iptv.player.PlayerManager
+import com.mtv.iptv.ui.mobile.safeClickable
 
 @Composable
 fun AudioTrackDialog(manager: PlayerManager, onDismiss: () -> Unit) {
@@ -99,7 +99,7 @@ private fun TrackRow(label: String, isSelected: Boolean, onClick: () -> Unit) {
         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .safeClickable(onClick = onClick)
             .padding(12.dp),
     )
 }

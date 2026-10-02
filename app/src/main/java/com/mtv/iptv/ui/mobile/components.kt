@@ -30,6 +30,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 
+/**
+ * Clickable sin indicación visual.
+ *
+ * El ripple que provee el tema (Material3 1.2.x) no implementa
+ * IndicationNodeFactory y el clickable nuevo de foundation lo rechaza con
+ * IllegalArgumentException al adjuntar el nodo ("...but Indication was
+ * provided instead"), cerrando la app al componer la primera lista.
+ * Con indication = null no se lee LocalIndication y no hay crash.
+ */
+@Composable
+fun Modifier.safeClickable(onClick: () -> Unit): Modifier =
+    clickable(indication = null, onClick = onClick)
+
 @Composable
 fun SectionHeader(title: String, onSeeAll: (() -> Unit)? = null) {
     Row(
@@ -52,7 +65,7 @@ fun PosterCard(imageUrl: String?, title: String, onClick: () -> Unit) {
         modifier = Modifier
             .width(120.dp)
             .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick),
+            .safeClickable(onClick = onClick),
     ) {
         AsyncImage(
             model = imageUrl,
@@ -78,9 +91,10 @@ fun PosterCard(imageUrl: String?, title: String, onClick: () -> Unit) {
 @Composable
 fun ChannelCard(iconUrl: String?, name: String, onClick: () -> Unit) {
     Card(
-        onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .safeClickable(onClick = onClick),
     ) {
         Column(
             modifier = Modifier.padding(8.dp),
@@ -119,7 +133,7 @@ fun ContinueWatchingCard(
         modifier = Modifier
             .width(160.dp)
             .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick),
+            .safeClickable(onClick = onClick),
     ) {
         Box {
             AsyncImage(
