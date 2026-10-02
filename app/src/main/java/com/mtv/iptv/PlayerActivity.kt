@@ -86,7 +86,7 @@ class PlayerActivity : ComponentActivity() {
                     text = title
                     setTextColor(Color.WHITE)
                     textSize = 18f
-                    setBackgroundColor(0x99000000)
+                    setBackgroundColor(0x99000000.toInt())
                     val hPad = (16 * density).toInt()
                     val vPad = (8 * density).toInt()
                     setPadding(hPad, vPad, hPad, vPad)
