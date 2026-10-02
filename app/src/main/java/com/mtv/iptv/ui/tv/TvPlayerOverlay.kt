@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -334,6 +335,24 @@ fun TvPlayerOverlay(
             }
         }
         if (controlsVisible) {
+            // Navegador compacto de controles: línea de tiempo (solo VOD) →
+            // fila de transporte → fila de opciones. Paddings mínimos para
+            // que las tres filas quepan en pantalla sin cortarse.
+            val timelineFr = remember { FocusRequester() }
+            val transportFr = remember { FocusRequester() }
+            val optionsFr = remember { FocusRequester() }
+
+            // Anclas de foco para el primer botón de cada fila: encadenan el
+            // D-pad (↓ baja de fila, ↑ sube) sin depender de la geometría.
+            fun Modifier.transportAnchor(up: FocusRequester?): Modifier =
+                focusRequester(transportFr).focusProperties {
+                    if (up != null) this.up = up
+                    down = optionsFr
+                }
+
+            fun Modifier.optionsAnchor(): Modifier =
+                focusRequester(optionsFr).focusProperties { up = transportFr }
+
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -343,9 +362,10 @@ fun TvPlayerOverlay(
                             colors = listOf(Color.Transparent, Color(0xCC000000)),
                         ),
                     )
-                    .padding(horizontal = 48.dp)
-                    .padding(top = 24.dp, bottom = 32.dp),
+                    .padding(horizontal = 40.dp)
+                    .padding(top = 8.dp, bottom = 16.dp),
             ) {
+                // 1. Línea de tiempo (solo VOD).
                 if (!isLive) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -359,7 +379,10 @@ fun TvPlayerOverlay(
                                 (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
                             } else 0f,
                             onSeek = { seekBy(it) },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(timelineFr)
+                                .focusProperties { down = transportFr },
                         )
                         Spacer(Modifier.width(16.dp))
                         Text(
@@ -368,16 +391,21 @@ fun TvPlayerOverlay(
                             color = Color.White,
                         )
                     }
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(8.dp))
                 }
-                // Fila principal: transporte + audio/subtítulos.
+                // 2. Fila de transporte: ∓10 s, play/pausa (foco inicial),
+                //    Audio, Subtítulos.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (!isLive) {
-                        TvPlayerButton(label = "−10 s", onClick = { seekBy(-10_000L) })
+                        TvPlayerButton(
+                            label = "−10 s",
+                            onClick = { seekBy(-10_000L) },
+                            modifier = Modifier.transportAnchor(up = timelineFr),
+                        )
                     }
                     Button(
                         onClick = {
@@ -385,7 +413,16 @@ fun TvPlayerOverlay(
                             if (playing) p.pause() else p.play()
                             interactionTick++
                         },
-                        modifier = Modifier.focusRequester(playFocus),
+                        modifier = Modifier
+                            .focusRequester(playFocus)
+                            .then(
+                                if (isLive) {
+                                    // En vivo el play/pausa es el primero de la fila.
+                                    Modifier.transportAnchor(up = null)
+                                } else {
+                                    Modifier.focusProperties { down = optionsFr }
+                                },
+                            ),
                     ) {
                         Icon(
                             if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -398,20 +435,32 @@ fun TvPlayerOverlay(
                     TvPlayerButton(label = "Audio", onClick = { showAudio = true })
                     TvPlayerButton(label = "Subtítulos", onClick = { showSubs = true })
                 }
-                Spacer(Modifier.height(12.dp))
-                // Segunda fila: opciones del reproductor.
+                Spacer(Modifier.height(8.dp))
+                // 3. Fila de opciones.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (isLive) {
-                        TvPlayerButton(label = "Canales", onClick = { showChannels = true })
+                        TvPlayerButton(
+                            label = "Canales",
+                            onClick = { showChannels = true },
+                            modifier = Modifier.optionsAnchor(),
+                        )
                     }
                     if (pipEnabled) {
-                        TvPlayerButton(label = "PiP", onClick = { onPipClick() })
+                        TvPlayerButton(
+                            label = "PiP",
+                            onClick = { onPipClick() },
+                            modifier = if (!isLive) Modifier.optionsAnchor() else Modifier,
+                        )
                     }
-                    TvPlayerButton(label = "Aspecto: $aspectLabel", onClick = { cycleAspect() })
+                    TvPlayerButton(
+                        label = "Aspecto: $aspectLabel",
+                        onClick = { cycleAspect() },
+                        modifier = if (!isLive && !pipEnabled) Modifier.optionsAnchor() else Modifier,
+                    )
                     TvPlayerButton(
                         label = if (sleepMinutes > 0) "Sleep ${sleepMinutes}m" else "Sleep",
                         onClick = { showSleep = true },
@@ -519,8 +568,12 @@ private fun TvQualityBadge(text: String, bg: Color = Color(0x66FFFFFF)) {
 /** Botón de texto del controlador (foco visible con D-pad). */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TvPlayerButton(label: String, onClick: () -> Unit) {
-    Button(onClick = onClick) { Text(label) }
+private fun TvPlayerButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Button(onClick = onClick, modifier = modifier) { Text(label) }
 }
 
 /**
