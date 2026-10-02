@@ -147,7 +147,7 @@ fun SeriesDetailScreen(
         val firstEp = si.episodes[firstSeason].orEmpty()
             .sortedBy { it.episodeNum }.firstOrNull() ?: return
         val poster = tmdb?.posterUrl ?: si.info.cover
-        playEpisode(firstEp, tmdb?.title ?: si.info.name, poster)
+        playEpisode(firstEp, tmdb?.title ?: si.info.name, poster, firstSeason)
     }
 
     fun toggleFavorite() {
@@ -423,7 +423,7 @@ fun SeriesDetailScreen(
                         EpisodeRow(
                             episode = ep,
                             poster = poster,
-                            onPlay = { playEpisode(ep, title, poster, selectedSeason) },
+                            onPlay = { playEpisode(ep, title, poster, selectedSeason.orEmpty()) },
                         )
                     }
                 }
