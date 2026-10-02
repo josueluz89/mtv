@@ -62,9 +62,9 @@ fun RemoteScreen(onBack: () -> Unit) {
     fun setPref(action: suspend () -> Unit) = scope.launch { action() }
 
     val rows = listOf(
-        Triple("Canal siguiente", keyChannelUp, suspend { code: Int -> prefs.setKeyChannelUp(code) }),
-        Triple("Canal anterior", keyChannelDown, suspend { code: Int -> prefs.setKeyChannelDown(code) }),
-        Triple("Info del programa", keyInfo, suspend { code: Int -> prefs.setKeyInfo(code) }),
+        Triple("Canal siguiente", keyChannelUp, { code: Int -> setPref { prefs.setKeyChannelUp(code) } }),
+        Triple("Canal anterior", keyChannelDown, { code: Int -> setPref { prefs.setKeyChannelDown(code) } }),
+        Triple("Info del programa", keyInfo, { code: Int -> setPref { prefs.setKeyInfo(code) } }),
     )
 
     Scaffold(
@@ -129,7 +129,7 @@ fun RemoteScreen(onBack: () -> Unit) {
                                 if (code == AndroidKeyEvent.KEYCODE_BACK) {
                                     capturing = -1
                                 } else {
-                                    setPref { save(code) }
+                                    save(code)
                                     capturing = -1
                                 }
                                 true
