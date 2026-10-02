@@ -291,14 +291,45 @@ fun TvMainScreen(
     seriesPos: Int = -1,
     seriesTotal: Int = -1,
 ) {
+    val container = LocalAppContainer.current
+    val scope = rememberCoroutineScope()
+    var pendingSection by remember { mutableStateOf<String?>(null) }
+    var showPin by remember { mutableStateOf(false) }
+
+    fun navigateTo(s: String) {
+        navController.navigate("tv_main/$s") {
+            popUpTo("tv_main/$section") { inclusive = true }
+            launchSingleTop = true
+        }
+    }
+
+    // Doble Atrás para salir (solo en la raíz de cada sección, no en detalle).
+    com.mtv.iptv.ui.common.DoubleBackToExit(
+        enabled = vodId == null && seriesId == null && personId == null,
+    )
+
     Row(Modifier.fillMaxSize().background(MtvBg)) {
         TvIconRail(
             selectedSection = section,
             onSelect = { s ->
                 if (s != section) {
-                    navController.navigate("tv_main/$s") {
-                        popUpTo("tv_main/$section") { inclusive = true }
-                        launchSingleTop = true
+                    if (s == "tv" || s == "movies" || s == "series") {
+                        // Puerta parental: si la sección está bloqueada, pide el PIN.
+                        scope.launch {
+                            val locked = try {
+                                isSectionLocked(container.userPrefs, s)
+                            } catch (_: Exception) {
+                                false
+                            }
+                            if (locked) {
+                                pendingSection = s
+                                showPin = true
+                            } else {
+                                navigateTo(s)
+                            }
+                        }
+                    } else {
+                        navigateTo(s)
                     }
                 }
             },
@@ -366,6 +397,20 @@ fun TvMainScreen(
                 )
             }
         }
+    }
+    // Diálogo del PIN parental (puerta del riel).
+    if (showPin) {
+        ParentalPinDialog(
+            onUnlocked = {
+                showPin = false
+                pendingSection?.let { navigateTo(it) }
+                pendingSection = null
+            },
+            onDismiss = {
+                showPin = false
+                pendingSection = null
+            },
+        )
     }
 }
 
