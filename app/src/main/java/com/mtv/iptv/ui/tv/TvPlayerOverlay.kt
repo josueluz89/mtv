@@ -1,5 +1,6 @@
 package com.mtv.iptv.ui.tv
 
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,11 +14,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -35,85 +39,130 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.media3.common.C
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
+import com.mtv.iptv.data.local.db.FavoriteEntity
 import com.mtv.iptv.data.remote.subs.OpenSubtitlesClient
 import com.mtv.iptv.data.remote.subs.SubtitleResult
 import com.mtv.iptv.di.LocalAppContainer
+import com.mtv.iptv.player.ExternalPlayer
 import com.mtv.iptv.player.PlayerManager
+import com.mtv.iptv.player.ZapChannel
 import com.mtv.iptv.player.attachExternalSubtitle
 import com.mtv.iptv.ui.common.MtvOnBg
 import com.mtv.iptv.ui.common.MtvRed
 import com.mtv.iptv.ui.common.MtvSurfaceVariant
+import com.mtv.iptv.ui.components.MtvAsyncImage
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import android.view.KeyEvent
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.key.onKeyEvent
-import kotlinx.coroutines.delay
 import java.io.File
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 
 /**
  * Controlador del reproductor en TV, estilo TiviMate: el PlayerView nativo
  * queda SIN su controlador (useController = false) y todo vive aquí —
- * título, barra de progreso con tiempo actual/total, play/pausa,
- * adelantar/retroceder y acceso directo a Audio y Subtítulos.
+ * título con badges de calidad (resolución, fps, audio), barra de progreso
+ * con tiempo actual/total, play/pausa, adelantar/retroceder, Audio,
+ * Subtítulos y una segunda fila con Canales, Guía, PiP, Aspecto, Sleep,
+ * Favorito, Externo y Opciones.
  *
  * Todo es operable con D-pad: OK muestra/oculta los controles; con los
  * controles visibles el foco arranca en play/pausa, izquierda/derecha
  * navega entre botones y sobre la barra de progreso salta ∓10 s.
- * Los diálogos (audio, subtítulos, buscar subtítulo) ya eran D-pad.
+ *
+ * El ExoPlayer puede reconstruirse en caliente (PlayerManager.playerEpoch)
+ * cuando cambian los ajustes de decodificación: el sondeo lee
+ * `manager.player` dinámicamente en cada iteración y la UI recompone con
+ * la instancia vigente.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvPlayerOverlay(
     title: String,
     isLive: Boolean,
+    mediaKey: String,
     manager: PlayerManager,
+    zapChannels: List<ZapChannel>,
     subTmdbId: Int?,
     subSeason: Int?,
     subEpisode: Int?,
+    onAspectChange: (String) -> Unit,
+    onPipClick: () -> Unit,
+    onClose: () -> Unit,
 ) {
     val context = LocalContext.current
     val container = LocalAppContainer.current
     val scope = rememberCoroutineScope()
-    val player = manager.player
+
+    // Epoch del player: si el PlayerManager lo reconstruye, la UI recompone
+    // (el sondeo y los diálogos leen siempre la instancia vigente).
+    val epoch by manager.playerEpoch.collectAsState()
 
     var controlsVisible by remember { mutableStateOf(true) }
     var interactionTick by remember { mutableStateOf(0) }
     var showAudio by remember { mutableStateOf(false) }
     var showSubs by remember { mutableStateOf(false) }
     var showSubSearch by remember { mutableStateOf(false) }
+    var showChannels by remember { mutableStateOf(false) }
+    var showGuide by remember { mutableStateOf(false) }
+    var showSleep by remember { mutableStateOf(false) }
+    var showOptions by remember { mutableStateOf(false) }
+
+    // Título/clave visibles: el zapping en vivo los actualiza sin recrear nada.
+    var currentKey by remember(mediaKey) { mutableStateOf(mediaKey) }
+    var currentTitle by remember(title) { mutableStateOf(title) }
+
     val subtitleSize by container.userPrefs.subtitleSize.collectAsState(initial = "M")
     val openSubtitlesKey by container.userPrefs.openSubtitlesKey.collectAsState(initial = "")
+    val pipEnabled by container.userPrefs.pipEnabled.collectAsState(initial = true)
+    val aspectPref by container.userPrefs.aspectRatio.collectAsState(initial = "fit")
 
-    // Posición/duración/estado: se sondea 2 veces por segundo.
+    // Posición/duración/estado/formatos: se sondea 2 veces por segundo
+    // leyendo SIEMPRE la instancia vigente del player.
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
     var playing by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) {
+    var videoW by remember { mutableStateOf(0) }
+    var videoH by remember { mutableStateOf(0) }
+    var videoFps by remember { mutableStateOf(0f) }
+    var audioBadge by remember { mutableStateOf("") }
+    LaunchedEffect(epoch) {
         while (true) {
-            positionMs = player.currentPosition.coerceAtLeast(0L)
-            durationMs = player.duration.let { if (it > 0) it else 0L }
-            playing = player.isPlaying
+            val p = manager.player
+            positionMs = p.currentPosition.coerceAtLeast(0L)
+            durationMs = p.duration.let { if (it > 0) it else 0L }
+            playing = p.isPlaying
+            val vf = p.videoFormat
+            videoW = vf?.width ?: 0
+            videoH = vf?.height ?: 0
+            videoFps = vf?.frameRate ?: 0f
+            audioBadge = selectedAudioBadge(p)
             delay(500)
         }
     }
 
-    val anyDialog = showAudio || showSubs || showSubSearch
+    val anyDialog = showAudio || showSubs || showSubSearch ||
+        showChannels || showGuide || showSleep || showOptions
     // Auto-ocultar: 4 s sin interacción (con un diálogo abierto no se oculta).
     LaunchedEffect(controlsVisible, interactionTick, anyDialog) {
         if (controlsVisible && !anyDialog) {
@@ -135,15 +184,102 @@ fun TvPlayerOverlay(
     }
 
     fun seekBy(deltaMs: Long) {
-        val target = (player.currentPosition + deltaMs).coerceAtLeast(0L)
-        val dur = player.duration
-        player.seekTo(if (dur > 0) target.coerceAtMost(dur) else target)
+        val p = manager.player
+        val target = (p.currentPosition + deltaMs).coerceAtLeast(0L)
+        val dur = p.duration
+        p.seekTo(if (dur > 0) target.coerceAtMost(dur) else target)
         interactionTick++
     }
 
     fun toggleControls() {
         controlsVisible = !controlsVisible
         interactionTick++
+    }
+
+    // ---------------- Zapping en vivo ----------------
+
+    fun zapTo(channel: ZapChannel) {
+        manager.play(
+            container.xtreamRepository.liveUrl(channel.streamId),
+            "live:${channel.streamId}",
+            channel.name,
+            channel.icon,
+            0,
+        )
+        currentKey = "live:${channel.streamId}"
+        currentTitle = channel.name
+        scope.launch {
+            try {
+                container.userPrefs.setLastLiveChannel("${channel.streamId}|${channel.name}")
+            } catch (_: Exception) {
+            }
+        }
+        interactionTick++
+    }
+
+    // ---------------- Favorito (solo en vivo) ----------------
+
+    val streamId = currentKey.removePrefix("live:")
+    var isFav by remember(currentKey) { mutableStateOf(false) }
+    LaunchedEffect(currentKey) {
+        isFav = try {
+            val sid = container.xtreamRepository.session?.server?.id ?: 0L
+            sid != 0L && container.favoritesRepository.isFavorite(sid, "live", streamId)
+        } catch (_: Exception) {
+            false
+        }
+    }
+    fun toggleFavorite() {
+        scope.launch {
+            try {
+                val sid = container.xtreamRepository.session?.server?.id ?: return@launch
+                isFav = container.favoritesRepository.toggle(
+                    FavoriteEntity(
+                        serverId = sid,
+                        kind = "live",
+                        refId = streamId,
+                        name = currentTitle,
+                        imageUrl = manager.currentImageUrl,
+                    ),
+                )
+            } catch (_: Exception) {
+            }
+        }
+        interactionTick++
+    }
+
+    // ---------------- Sleep timer ----------------
+
+    var sleepJob by remember { mutableStateOf<Job?>(null) }
+    var sleepMinutes by remember { mutableStateOf(0) }
+    fun setSleep(minutes: Int) {
+        sleepJob?.cancel()
+        sleepJob = null
+        sleepMinutes = minutes
+        if (minutes > 0) {
+            sleepJob = scope.launch {
+                delay(minutes * 60_000L)
+                onClose()
+            }
+        }
+        interactionTick++
+    }
+
+    // ---------------- Aspecto ----------------
+
+    fun cycleAspect() {
+        val next = when (aspectPref) {
+            "fit" -> "fill"
+            "fill" -> "zoom"
+            else -> "fit"
+        }
+        onAspectChange(next)
+        interactionTick++
+    }
+    val aspectLabel = when (aspectPref) {
+        "fill" -> "Llenar"
+        "zoom" -> "Zoom"
+        else -> "Ajustar"
     }
 
     Box(
@@ -163,28 +299,40 @@ fun TvPlayerOverlay(
                 }
             },
     ) {
-        if (controlsVisible && title.isNotBlank()) {
+        // Barra de info superior: título + badges de calidad.
+        if (controlsVisible && currentTitle.isNotBlank()) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .fillMaxWidth(0.7f)
+                    .fillMaxWidth(0.75f)
                     .padding(28.dp)
                     .background(Color(0x99000000), RoundedCornerShape(10.dp))
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
                 Text(
-                    title,
+                    currentTitle,
                     style = MaterialTheme.typography.headlineSmall,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                val vf = player.videoFormat
-                if (vf != null && vf.width > 0 && vf.height > 0) {
+                if (isLive) {
                     Spacer(Modifier.width(12.dp))
-                    TvQualityBadge("${vf.width}x${vf.height}")
+                    TvQualityBadge("EN VIVO", Color(0xFFE02020))
+                }
+                if (videoW > 0 && videoH > 0) {
+                    Spacer(Modifier.width(12.dp))
+                    TvQualityBadge("${videoW}x${videoH}")
+                }
+                if (videoFps > 0f) {
+                    Spacer(Modifier.width(8.dp))
+                    TvQualityBadge("%.0f FPS".format(videoFps))
+                }
+                if (audioBadge.isNotBlank()) {
+                    Spacer(Modifier.width(8.dp))
+                    TvQualityBadge(audioBadge)
                 }
             }
         }
@@ -225,6 +373,7 @@ fun TvPlayerOverlay(
                     }
                     Spacer(Modifier.height(12.dp))
                 }
+                // Fila principal: transporte + audio/subtítulos.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
@@ -235,7 +384,8 @@ fun TvPlayerOverlay(
                     }
                     Button(
                         onClick = {
-                            if (playing) player.pause() else player.play()
+                            val p = manager.player
+                            if (playing) p.pause() else p.play()
                             interactionTick++
                         },
                         modifier = Modifier.focusRequester(playFocus),
@@ -251,16 +401,57 @@ fun TvPlayerOverlay(
                     TvPlayerButton(label = "Audio", onClick = { showAudio = true })
                     TvPlayerButton(label = "Subtítulos", onClick = { showSubs = true })
                 }
+                Spacer(Modifier.height(12.dp))
+                // Segunda fila: opciones del reproductor.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (isLive) {
+                        TvPlayerButton(label = "Canales", onClick = { showChannels = true })
+                        TvPlayerButton(label = "Guía", onClick = { showGuide = true })
+                    }
+                    if (pipEnabled) {
+                        TvPlayerButton(label = "PiP", onClick = { onPipClick() })
+                    }
+                    TvPlayerButton(label = "Aspecto: $aspectLabel", onClick = { cycleAspect() })
+                    TvPlayerButton(
+                        label = if (sleepMinutes > 0) "Sleep ${sleepMinutes}m" else "Sleep",
+                        onClick = { showSleep = true },
+                    )
+                    if (isLive) {
+                        TvPlayerButton(
+                            label = if (isFav) "✓ ★ Favorito" else "★ Favorito",
+                            onClick = { toggleFavorite() },
+                        )
+                    }
+                    TvPlayerButton(
+                        label = "Externo",
+                        onClick = {
+                            val activity = context as? ComponentActivity ?: return@TvPlayerButton
+                            ExternalPlayer.playExternal(
+                                activity,
+                                manager.currentUrl,
+                                currentTitle,
+                                currentKey,
+                                container,
+                            )
+                        },
+                    )
+                    TvPlayerButton(label = "Opciones", onClick = { showOptions = true })
+                }
             }
         }
     }
 
     if (showAudio) {
-        TvAudioTrackDialog(manager = manager, onDismiss = { showAudio = false })
+        TvAudioTrackDialog(manager = manager, epoch = epoch, onDismiss = { showAudio = false })
     }
     if (showSubs) {
         TvSubtitleTrackDialog(
             manager = manager,
+            epoch = epoch,
             subtitleSize = subtitleSize,
             onSizeSelect = { size ->
                 scope.launch {
@@ -291,14 +482,44 @@ fun TvPlayerOverlay(
             onDismiss = { showSubSearch = false },
         )
     }
+    if (showChannels) {
+        TvChannelListDialog(
+            channels = zapChannels,
+            currentStreamId = streamId.toIntOrNull(),
+            onPick = { channel ->
+                showChannels = false
+                zapTo(channel)
+            },
+            onDismiss = { showChannels = false },
+        )
+    }
+    if (showGuide) {
+        TvGuideDialog(
+            channels = zapChannels,
+            onDismiss = { showGuide = false },
+        )
+    }
+    if (showSleep) {
+        TvSleepDialog(
+            selected = sleepMinutes,
+            onSelect = { minutes ->
+                showSleep = false
+                setSleep(minutes)
+            },
+            onDismiss = { showSleep = false },
+        )
+    }
+    if (showOptions) {
+        TvPlaybackOptionsDialog(onDismiss = { showOptions = false })
+    }
 }
 
 /** Etiqueta pequeña de calidad (p. ej. "1920x1080"), como en la referencia. */
 @Composable
-private fun TvQualityBadge(text: String) {
+private fun TvQualityBadge(text: String, bg: Color = Color(0x66FFFFFF)) {
     Box(
         modifier = Modifier
-            .background(Color(0x66FFFFFF), RoundedCornerShape(4.dp))
+            .background(bg, RoundedCornerShape(4.dp))
             .padding(horizontal = 8.dp, vertical = 3.dp),
     ) {
         Text(text, style = MaterialTheme.typography.bodySmall, color = Color.White)
@@ -372,6 +593,45 @@ private fun formatPlayerTime(ms: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
+/** "AAC · 5.1" a partir de la pista de audio seleccionada ("" si no hay). */
+private fun selectedAudioBadge(p: ExoPlayer): String {
+    for (group in p.currentTracks.groups) {
+        if (group.type != C.TRACK_TYPE_AUDIO) continue
+        for (i in 0 until group.length) {
+            if (!group.isTrackSelected(i)) continue
+            val f = group.getTrackFormat(i)
+            val codec = audioCodecLabel(f.sampleMimeType)
+            val ch = audioChannelsLabel(f.channelCount)
+            return if (ch.isNotBlank()) "$codec · $ch" else codec
+        }
+    }
+    return ""
+}
+
+private fun audioCodecLabel(mime: String?): String = when {
+    mime == null -> "Audio"
+    mime.contains("ec-3") || mime == "audio/eac3" -> "E-AC3"
+    mime.contains("ac-3") || mime == "audio/ac3" -> "AC3"
+    mime.contains("truehd") -> "TrueHD"
+    mime.contains("dts") -> "DTS"
+    mime.contains("mp4a") -> "AAC"
+    mime.contains("opus") -> "Opus"
+    mime.contains("vorbis") -> "Vorbis"
+    mime.contains("flac") -> "FLAC"
+    mime.contains("mpeg") -> "MP3"
+    mime.contains("pcm") || mime.contains("raw") -> "PCM"
+    else -> mime.substringAfterLast('/').uppercase().take(8)
+}
+
+private fun audioChannelsLabel(channels: Int): String = when {
+    channels >= 8 -> "7.1"
+    channels >= 6 -> "5.1"
+    channels == 2 -> "STEREO"
+    channels == 1 -> "MONO"
+    channels > 0 -> "$channels CH"
+    else -> ""
+}
+
 // ---------------- Diálogos con foco visible (D-pad) ----------------
 
 /** Fila seleccionable con resaltado de foco para el control remoto. */
@@ -411,8 +671,9 @@ fun TvTrackRow(label: String, isSelected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun TvAudioTrackDialog(manager: PlayerManager, onDismiss: () -> Unit) {
-    val options = remember { manager.audioTracks() }
+fun TvAudioTrackDialog(manager: PlayerManager, epoch: Int, onDismiss: () -> Unit) {
+    // epoch: si el player se reconstruyó, releer las pistas de la instancia nueva.
+    val options = remember(epoch) { manager.audioTracks() }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Pista de audio") },
@@ -447,12 +708,13 @@ fun TvAudioTrackDialog(manager: PlayerManager, onDismiss: () -> Unit) {
 @Composable
 fun TvSubtitleTrackDialog(
     manager: PlayerManager,
+    epoch: Int,
     subtitleSize: String,
     onSizeSelect: (String) -> Unit,
     onSearchClick: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
-    val options = remember { manager.textTracks() }
+    val options = remember(epoch) { manager.textTracks() }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Subtítulos") },
@@ -546,6 +808,252 @@ fun TvSubtitleTrackDialog(
                         }
                     }
                 }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },
+    )
+}
+
+/** Lista de canales para zapping (logo + nombre), navegable con D-pad. */
+@Composable
+private fun TvChannelListDialog(
+    channels: List<ZapChannel>,
+    currentStreamId: Int?,
+    onPick: (ZapChannel) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Canales") },
+        text = {
+            if (channels.isEmpty()) {
+                Text("No hay canales en la lista.", modifier = Modifier.padding(12.dp))
+            } else {
+                LazyColumn {
+                    items(channels, key = { it.streamId }) { channel ->
+                        var focused by remember { mutableStateOf(false) }
+                        val selected = channel.streamId == currentStreamId
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onFocusChanged { focused = it.isFocused }
+                                .clickable(
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    onClick = { onPick(channel) },
+                                )
+                                .background(
+                                    when {
+                                        focused -> MtvRed.copy(alpha = 0.45f)
+                                        selected -> MtvSurfaceVariant
+                                        else -> Color.Transparent
+                                    },
+                                    RoundedCornerShape(8.dp),
+                                )
+                                .border(
+                                    width = if (focused) 2.dp else 0.dp,
+                                    color = if (focused) MtvRed else Color.Transparent,
+                                    shape = RoundedCornerShape(8.dp),
+                                )
+                                .padding(10.dp),
+                        ) {
+                            if (channel.icon.isNotBlank()) {
+                                MtvAsyncImage(
+                                    model = channel.icon,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Fit,
+                                    maxSizePx = 128,
+                                    modifier = Modifier.size(56.dp),
+                                )
+                                Spacer(Modifier.width(12.dp))
+                            }
+                            Text(
+                                channel.name,
+                                color = if (focused || selected) Color.White else MtvOnBg,
+                                style = androidx.tv.material3.MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },
+    )
+}
+
+/**
+ * Guía de programación estilo TiviMate. Sin EPG real: pestañas Hoy + 3 días
+ * y celdas "Sin información" por canal.
+ */
+@Composable
+private fun TvGuideDialog(
+    channels: List<ZapChannel>,
+    onDismiss: () -> Unit,
+) {
+    val days = remember {
+        val base = Calendar.getInstance()
+        List(4) { i ->
+            val c = (base.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, i) }
+            if (i == 0) {
+                "Hoy"
+            } else {
+                SimpleDateFormat("EEEE d", Locale("es"))
+                    .format(c.time)
+                    .replaceFirstChar { it.uppercase() }
+            }
+        }
+    }
+    var tab by remember { mutableStateOf(0) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Guía") },
+        text = {
+            Column {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 12.dp),
+                ) {
+                    days.forEachIndexed { i, label ->
+                        FilterChip(
+                            selected = tab == i,
+                            onClick = { tab = i },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+                if (channels.isEmpty()) {
+                    Text("No hay canales en la lista.", modifier = Modifier.padding(12.dp))
+                } else {
+                    LazyColumn {
+                        items(channels, key = { it.streamId }) { channel ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                            ) {
+                                Text(
+                                    channel.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    "Sin información",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MtvOnBg,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },
+    )
+}
+
+/** Sleep timer: al vencer llama onClose (termina la reproducción). */
+@Composable
+private fun TvSleepDialog(
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val options = listOf(0, 15, 30, 60, 90, 120)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Apagado automático") },
+        text = {
+            LazyColumn {
+                items(options) { minutes ->
+                    val label = if (minutes == 0) "Desactivado" else "$minutes minutos"
+                    TvTrackRow(label, isSelected = minutes == selected) {
+                        onSelect(minutes)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },
+    )
+}
+
+/** Resumen rápido de los ajustes de reproducción vigentes. */
+@Composable
+private fun TvPlaybackOptionsDialog(onDismiss: () -> Unit) {
+    val container = LocalAppContainer.current
+    val videoDec by container.userPrefs.videoDecoder.collectAsState(initial = "hw")
+    val audioDec by container.userPrefs.audioDecoder.collectAsState(initial = "auto")
+    val buffer by container.userPrefs.bufferSize.collectAsState(initial = "medio")
+    val aspect by container.userPrefs.aspectRatio.collectAsState(initial = "fit")
+    val afr by container.userPrefs.afrEnabled.collectAsState(initial = false)
+    val surround by container.userPrefs.surroundDefault.collectAsState(initial = false)
+
+    fun videoLabel(v: String) = when (v) {
+        "sw" -> "Software"
+        else -> "Hardware"
+    }
+    fun audioLabel(v: String) = when (v) {
+        "hw" -> "Hardware"
+        "sw" -> "Solo software (FFmpeg)"
+        else -> "Automático"
+    }
+    fun bufferLabel(v: String) = when (v) {
+        "pequeno" -> "Pequeño"
+        "grande" -> "Grande"
+        else -> "Medio"
+    }
+    fun aspectLabel(v: String) = when (v) {
+        "fill" -> "Llenar"
+        "zoom" -> "Zoom"
+        else -> "Ajustar"
+    }
+
+    val rows = listOf(
+        "Decodificador de video" to videoLabel(videoDec),
+        "Decodificador de audio" to audioLabel(audioDec),
+        "Tamaño del buffer" to bufferLabel(buffer),
+        "Aspecto" to aspectLabel(aspect),
+        "Auto frame rate (AFR)" to if (afr) "Activado" else "Desactivado",
+        "Audio envolvente por defecto" to if (surround) "Activado" else "Desactivado",
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Opciones de reproducción") },
+        text = {
+            Column {
+                rows.forEach { (k, v) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp),
+                    ) {
+                        Text(
+                            k,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MtvOnBg,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            v,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color.White,
+                        )
+                    }
+                }
+                Text(
+                    "Los cambios de decodificador y buffer se aplican al iniciar la próxima reproducción.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MtvOnBg,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },

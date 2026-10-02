@@ -73,7 +73,7 @@ class AppContainer(appContext: Context) {
      * forzarlo (el observador de background no debe inicializarlo).
      */
     private val _playerManager = lazy {
-        PlayerManager(appContext, playbackRepository, downloadModule.cacheDataSourceFactory)
+        PlayerManager(appContext, playbackRepository, downloadModule.cacheDataSourceFactory, userPrefs)
     }
     val playerManager: PlayerManager by _playerManager
 

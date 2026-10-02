@@ -1,10 +1,12 @@
 package com.mtv.iptv
 
+import android.app.PictureInPictureParams
 import android.app.UiModeManager
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.util.TypedValue
 import android.widget.FrameLayout
@@ -15,6 +17,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.mtv.iptv.di.LocalAppContainer
@@ -95,6 +101,58 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    @Volatile
+    private var pipOnHomeCached = false
+
+    @Volatile
+    private var afrEnabledCached = false
+
+    private fun resizeModeFor(pref: String): Int = when (pref) {
+        "fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+        "zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+    }
+
+    private fun enterPip() {
+        try {
+            enterPictureInPictureMode(PictureInPictureParams.Builder().build())
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Auto frame rate (best-effort): busca en los modos soportados del display
+     * el refreshRate más cercano a los fps del video y lo pide como modo
+     * preferido de la ventana.
+     */
+    private fun applyAfr(frameRate: Float) {
+        try {
+            val disp = if (Build.VERSION.SDK_INT >= 30) {
+                display
+            } else {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay
+            } ?: return
+            val best = disp.supportedModes.minByOrNull {
+                kotlin.math.abs(it.refreshRate - frameRate)
+            } ?: return
+            if (best.modeId == 0 || best.modeId == disp.modeId) return
+            val attrs = window.attributes
+            attrs.preferredDisplayModeId = best.modeId
+            window.attributes = attrs
+        } catch (_: Exception) {
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Home durante la reproducción: PiP si el ajuste está activo y hay
+        // reproducción en curso.
+        if (pipOnHomeCached && appContainer.playerManager.player.isPlaying) {
+            enterPip()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val url = intent.getStringExtra(EXTRA_URL).orEmpty()
@@ -120,6 +178,34 @@ class PlayerActivity : ComponentActivity() {
             val subSeason = if (intent.hasExtra(EXTRA_SUB_SEASON)) intent.getIntExtra(EXTRA_SUB_SEASON, 0).takeIf { it > 0 } else null
             val subEpisode = if (intent.hasExtra(EXTRA_SUB_EPISODE)) intent.getIntExtra(EXTRA_SUB_EPISODE, 0).takeIf { it > 0 } else null
             val isLive = mediaKey.startsWith("live:")
+            // La lista de zapping también se usa en TV (diálogo "Canales").
+            val zapChannels = zapFromIntent(intent)
+
+            // En vivo: recordar el último canal (Ajustes → "Abrir el último canal").
+            if (isLive) {
+                val streamId = mediaKey.removePrefix("live:")
+                lifecycleScope.launch {
+                    try {
+                        container.userPrefs.setLastLiveChannel("$streamId|$title")
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+
+            // Prefs que se leen una vez al abrir el reproductor (se observan
+            // como caché para no bloquear el hilo principal en cada uso).
+            lifecycleScope.launch {
+                try {
+                    container.userPrefs.pipOnHome.collect { pipOnHomeCached = it }
+                } catch (_: Exception) {
+                }
+            }
+            lifecycleScope.launch {
+                try {
+                    container.userPrefs.afrEnabled.collect { afrEnabledCached = it }
+                } catch (_: Exception) {
+                }
+            }
 
             val frame = FrameLayout(this).apply {
                 setBackgroundColor(Color.BLACK)
@@ -130,7 +216,13 @@ class PlayerActivity : ComponentActivity() {
                 useController = false
                 isFocusable = false
             }
-            playerView.player = manager.player
+            // Aspecto inicial desde el pref (el overlay lo cambia en vivo).
+            lifecycleScope.launch {
+                try {
+                    playerView.resizeMode = resizeModeFor(container.userPrefs.aspectRatio.first())
+                } catch (_: Exception) {
+                }
+            }
             // Estilo de subtítulos (Ajustes → Subtítulos) también en la rama TV.
             lifecycleScope.launch {
                 try {
@@ -168,6 +260,27 @@ class PlayerActivity : ComponentActivity() {
                 } catch (_: Exception) {
                 }
             }
+            // Asigna la instancia vigente del player y (si AFR está activo)
+            // engancha el ajuste de tasa de refresco a sus cambios de formato.
+            fun watchPlayer(p: ExoPlayer) {
+                playerView.player = p
+                if (!afrEnabledCached) return
+                p.addListener(object : Player.Listener {
+                    override fun onVideoSizeChanged(videoSize: VideoSize) {
+                        val fps = p.videoFormat?.frameRate ?: 0f
+                        if (fps > 0f) applyAfr(fps)
+                    }
+                })
+            }
+            // El player puede reconstruirse si cambian los ajustes de
+            // decodificación (PlayerManager.playerEpoch): reasignar siempre la
+            // instancia vigente y reenganchar el listener de AFR.
+            lifecycleScope.launch {
+                try {
+                    manager.playerEpoch.collect { watchPlayer(manager.player) }
+                } catch (_: Exception) {
+                }
+            }
             frame.addView(
                 playerView,
                 FrameLayout.LayoutParams(
@@ -185,10 +298,23 @@ class PlayerActivity : ComponentActivity() {
                             TvPlayerOverlay(
                                 title = title,
                                 isLive = isLive,
+                                mediaKey = mediaKey,
                                 manager = manager,
+                                zapChannels = zapChannels,
                                 subTmdbId = subTmdbId,
                                 subSeason = subSeason,
                                 subEpisode = subEpisode,
+                                onAspectChange = { mode ->
+                                    lifecycleScope.launch {
+                                        try {
+                                            container.userPrefs.setAspectRatio(mode)
+                                        } catch (_: Exception) {
+                                        }
+                                    }
+                                    playerView.resizeMode = resizeModeFor(mode)
+                                },
+                                onPipClick = { enterPip() },
+                                onClose = { finish() },
                             )
                         }
                     }

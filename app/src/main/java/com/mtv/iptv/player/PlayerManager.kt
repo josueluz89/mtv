@@ -4,20 +4,39 @@ import android.content.Context
 import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
-import androidx.media3.exoplayer.ExoPlayer
 import com.mtv.iptv.data.local.db.PlaybackEntity
+import com.mtv.iptv.data.local.prefs.UserPrefs
 import com.mtv.iptv.data.repository.PlaybackRepository
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * Un solo ExoPlayer para toda la app (HLS/DASH/TS progresivo).
  * Guarda y restaura la posición en [PlaybackRepository].
+ *
+ * AJUSTES DE DECODIFICACIÓN: el player se construye con el triple
+ * (videoDecoder, audioDecoder, bufferSize) de [UserPrefs]. Si al llamar a
+ * [play] el triple cambió desde la última construcción, el player se
+ * reconstruye (se libera el viejo, se crea el nuevo y el llamante re-setea
+ * el media item). La UI observa [playerEpoch] para reasignar
+ * `playerView.player` y recomponer tras cada reconstrucción.
  *
  * NOTA DE HILOS: ExoPlayer exige que TODO acceso directo a `player`
  * (currentPosition, duration, videoFormat, play, seekTo, currentTracks,
@@ -32,21 +51,29 @@ class PlayerManager(
     appContext: Context,
     private val playbackRepository: PlaybackRepository,
     cacheDataSourceFactory: CacheDataSource.Factory,
+    private val userPrefs: UserPrefs,
 ) {
+    private val appCtx: Context = appContext.applicationContext
 
-    // NOTA DE CODECS: no se ponen límites de tamaño de video, bitrate máximo
-    // ni exclusiones de Dolby Vision en el selector. 4K, Dolby Vision,
-    // HDR10/HDR10+, HLS, DASH y TS están permitidos y se prefiere
-    // decodificación por hardware (ver renderersFactory abajo).
-    private val trackSelector = DefaultTrackSelector(appContext)
+    /** Triple que determina cómo se construye el ExoPlayer. */
+    private data class BuildConfig(
+        val videoDecoder: String, // "hw" | "sw"
+        val audioDecoder: String, // "auto" | "hw" | "sw"
+        val bufferSize: String,   // "pequeno" | "medio" | "grande"
+    ) {
+        companion object {
+            val DEFAULT = BuildConfig("hw", "auto", "medio")
+        }
+    }
 
-    private val renderersFactory = DefaultRenderersFactory(appContext)
-        // EXTENSION_RENDERER_MODE_ON: el FfmpegAudioRenderer (extensión) se
-        // agrega DESPUÉS de los renderers MediaCodec del dispositivo, así
-        // FFmpeg solo entra como respaldo si el hardware no soporta el
-        // formato de audio. Requiere el módulo :decoder_ffmpeg compilado.
-        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-        .setEnableDecoderFallback(true)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** Último triple leído de las prefs (se mantiene fresco observando los flows). */
+    @Volatile
+    private var cachedConfig = BuildConfig.DEFAULT
+
+    @Volatile
+    private var surroundDefaultCached = false
 
     init {
         // Diagnóstico: confirma si el respaldo FFmpeg quedó disponible.
@@ -56,16 +83,97 @@ class PlayerManager(
         } catch (_: Throwable) {
             Log.i("PlayerManager", "FFmpeg audio decoder not bundled")
         }
+        scope.launch {
+            combine(
+                userPrefs.videoDecoder,
+                userPrefs.audioDecoder,
+                userPrefs.bufferSize,
+            ) { video, audio, buffer -> BuildConfig(video, audio, buffer) }
+                .collect { cachedConfig = it }
+        }
+        scope.launch {
+            userPrefs.surroundDefault.collect { surroundDefaultCached = it }
+        }
     }
 
-    val player: ExoPlayer = ExoPlayer.Builder(appContext, renderersFactory)
-        .setTrackSelector(trackSelector)
-        // CacheDataSource COMPARTIDO con el módulo de descargas: la reproducción
-        // lee automáticamente del caché (offline transparente).
-        .setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSourceFactory))
-        .setSeekBackIncrementMs(10_000)
-        .setSeekForwardIncrementMs(10_000)
-        .build()
+    private val trackSelector = DefaultTrackSelector(appCtx)
+    private val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)
+
+    /**
+     * Selector que deja pasar SOLO decodificadores de software
+     * (OMX.google.* / c2.android.*). Para "hw" se usa el default.
+     */
+    private fun videoCodecSelector(mode: String): MediaCodecSelector =
+        if (mode == "sw") {
+            MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+                MediaCodecUtil.getDecoderInfos(
+                    mimeType,
+                    requiresSecureDecoder,
+                    requiresTunnelingDecoder,
+                ).filter { info ->
+                    val name = info.name.lowercase()
+                    name.startsWith("omx.google.") || name.startsWith("c2.android.")
+                }
+            }
+        } else {
+            MediaCodecSelector.DEFAULT
+        }
+
+    private fun buildPlayer(config: BuildConfig): ExoPlayer {
+        val renderersFactory = DefaultRenderersFactory(appCtx, videoCodecSelector(config.videoDecoder))
+            .setExtensionRendererMode(
+                when (config.audioDecoder) {
+                    // Solo hardware: FFmpeg fuera.
+                    "hw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+                    // Preferir FFmpeg/software sobre el hardware.
+                    "sw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+                    // Hardware primero, FFmpeg como respaldo (comportamiento clásico).
+                    else -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
+                },
+            )
+            .setEnableDecoderFallback(true)
+
+        // (minBufferMs, maxBufferMs, bufferForPlaybackMs, bufferForPlaybackAfterRebufferMs)
+        val (minBuf, maxBuf, forPlayback, afterRebuffer) = when (config.bufferSize) {
+            "pequeno" -> intArrayOf(15_000, 30_000, 2_500, 5_000)
+            "grande" -> intArrayOf(120_000, 240_000, 5_000, 10_000)
+            else -> intArrayOf(50_000, 120_000, 2_500, 5_000) // "medio"
+        }
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(minBuf, maxBuf, forPlayback, afterRebuffer)
+            .build()
+
+        Log.i(
+            "PlayerManager",
+            "Construyendo ExoPlayer video=${config.videoDecoder} " +
+                "audio=${config.audioDecoder} buffer=${config.bufferSize}",
+        )
+        return ExoPlayer.Builder(appCtx, renderersFactory)
+            .setTrackSelector(trackSelector)
+            // CacheDataSource COMPARTIDO con el módulo de descargas: la reproducción
+            // lee automáticamente del caché (offline transparente).
+            .setMediaSourceFactory(mediaSourceFactory)
+            .setLoadControl(loadControl)
+            .setSeekBackIncrementMs(10_000)
+            .setSeekForwardIncrementMs(10_000)
+            .build()
+            .also { attachSurroundListener(it) }
+    }
+
+    private var playerActual: ExoPlayer = buildPlayer(BuildConfig.DEFAULT)
+    private var builtConfig = BuildConfig.DEFAULT
+
+    /**
+     * Getter DINÁMICO: siempre devuelve la instancia vigente. No capturar en
+     * un val local si el player puede reconstruirse (ver [playerEpoch]).
+     */
+    val player: ExoPlayer get() = playerActual
+
+    /**
+     * Se incrementa en cada reconstrucción del ExoPlayer. La UI lo observa
+     * para reasignar `playerView.player` y recomponer sus lecturas.
+     */
+    val playerEpoch = MutableStateFlow(0)
 
     val selector: DefaultTrackSelector get() = trackSelector
 
@@ -78,7 +186,39 @@ class PlayerManager(
     var currentUrl: String = ""
         private set
 
+    /**
+     * Reconstruye el player SOLO si el triple (video, audio, buffer) cambió
+     * desde la última construcción. Restaura el medio anterior (si había)
+     * para no dejar el player vacío; el llamante ([play]) re-setea su
+     * propio media item justo después. Llamar en el hilo principal.
+     */
+    fun ensurePlayerConfig() {
+        val config = cachedConfig
+        if (config == builtConfig) return
+        Log.i("PlayerManager", "Ajustes cambiaron ($builtConfig -> $config): reconstruyendo player")
+        val old = playerActual
+        val oldItem = old.currentMediaItem
+        val oldPos = old.currentPosition.coerceAtLeast(0L)
+        val wasPlaying = old.playWhenReady
+        old.release()
+        playerActual = buildPlayer(config)
+        builtConfig = config
+        playerEpoch.value += 1
+        if (oldItem != null) {
+            playerActual.setMediaItem(oldItem)
+            playerActual.prepare()
+            if (oldPos > 0) playerActual.seekTo(oldPos)
+            playerActual.playWhenReady = wasPlaying
+        }
+    }
+
     fun play(url: String, mediaKey: String, title: String, imageUrl: String, startPositionMs: Long = 0) {
+        // Aplica decodificadores/buffer vigentes (reconstruye solo si cambiaron).
+        ensurePlayerConfig()
+        if (mediaKey != currentMediaKey) {
+            surroundAppliedKey = ""
+            userAudioOverride = false
+        }
         currentMediaKey = mediaKey
         currentTitle = title
         currentImageUrl = imageUrl
@@ -122,7 +262,51 @@ class PlayerManager(
     }
 
     fun release() {
-        player.release()
+        scope.cancel()
+        playerActual.release()
+    }
+
+    // ---------------- Audio envolvente por defecto ----------------
+
+    private var surroundAppliedKey = ""
+    private var userAudioOverride = false
+
+    /**
+     * Si el pref "Audio envolvente por defecto" está activo, al primer
+     * onTracksChanged de cada medio (sin override manual de audio) elige la
+     * primera pista de audio con 6+ canales, si existe.
+     */
+    private fun attachSurroundListener(p: ExoPlayer) {
+        p.addListener(object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) {
+                if (!surroundDefaultCached || userAudioOverride) return
+                val key = currentMediaKey
+                if (key.isBlank() || surroundAppliedKey == key) return
+                for (group in tracks.groups) {
+                    if (group.type != C.TRACK_TYPE_AUDIO) continue
+                    for (i in 0 until group.length) {
+                        val f = group.getTrackFormat(i)
+                        if (f.channelCount >= 6) {
+                            trackSelector.setParameters(
+                                trackSelector.buildUponParameters()
+                                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                                    .setOverrideForType(
+                                        TrackSelectionOverride(group.mediaTrackGroup, listOf(i)),
+                                    ),
+                            )
+                            surroundAppliedKey = key
+                            Log.i(
+                                "PlayerManager",
+                                "Audio envolvente auto: ${f.sampleMimeType} ${f.channelCount}ch",
+                            )
+                            return
+                        }
+                    }
+                }
+                // Sin pista 5.1+: marcar para no reintentar en cada onTracksChanged.
+                surroundAppliedKey = key
+            }
+        })
     }
 
     // ---------------- Pistas de audio / subtítulos ----------------
@@ -149,6 +333,7 @@ class PlayerManager(
     }
 
     fun selectAudio(groupIndex: Int, trackIndex: Int) {
+        userAudioOverride = true
         val group = player.currentTracks.groups[groupIndex]
         trackSelector.setParameters(
             trackSelector.buildUponParameters()
@@ -158,6 +343,7 @@ class PlayerManager(
     }
 
     fun clearAudioOverride() {
+        userAudioOverride = false
         trackSelector.setParameters(
             trackSelector.buildUponParameters()
                 .clearOverridesOfType(C.TRACK_TYPE_AUDIO)

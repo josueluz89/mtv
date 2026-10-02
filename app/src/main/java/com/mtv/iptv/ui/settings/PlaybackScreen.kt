@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -45,6 +46,37 @@ private fun playerModeDescription(mode: String): String = when (mode) {
     else -> "Usa VLC externo si está instalado, si no el interno"
 }
 
+private val videoDecoderOptions = listOf("hw", "sw")
+
+private fun videoDecoderLabel(mode: String): String = when (mode) {
+    "sw" -> "Software"
+    else -> "Hardware"
+}
+
+private val audioDecoderOptions = listOf("auto", "hw", "sw")
+
+private fun audioDecoderLabel(mode: String): String = when (mode) {
+    "hw" -> "Hardware"
+    "sw" -> "Solo software (FFmpeg)"
+    else -> "Automático"
+}
+
+private val bufferSizeOptions = listOf("pequeno", "medio", "grande")
+
+private fun bufferSizeLabel(mode: String): String = when (mode) {
+    "pequeno" -> "Pequeño"
+    "grande" -> "Grande"
+    else -> "Medio"
+}
+
+private val aspectRatioOptions = listOf("fit", "fill", "zoom")
+
+private fun aspectRatioLabel(mode: String): String = when (mode) {
+    "fill" -> "Llenar"
+    "zoom" -> "Zoom"
+    else -> "Ajustar"
+}
+
 /** Reproducción: velocidad por defecto, autoplay, PiP, continuar donde quedó y reproductor. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,9 +90,19 @@ fun PlaybackScreen(onBack: () -> Unit) {
     val pipEnabled by prefs.pipEnabled.collectAsState(initial = true)
     val resumeEnabled by prefs.resumeEnabled.collectAsState(initial = true)
     val playerMode by prefs.playerMode.collectAsState(initial = "auto")
+    val videoDecoder by prefs.videoDecoder.collectAsState(initial = "hw")
+    val audioDecoder by prefs.audioDecoder.collectAsState(initial = "auto")
+    val bufferSize by prefs.bufferSize.collectAsState(initial = "medio")
+    val afrEnabled by prefs.afrEnabled.collectAsState(initial = false)
+    val aspectRatio by prefs.aspectRatio.collectAsState(initial = "fit")
+    val surroundDefault by prefs.surroundDefault.collectAsState(initial = false)
 
     var speedDialog by remember { mutableStateOf(false) }
     var playerDialog by remember { mutableStateOf(false) }
+    var videoDecoderDialog by remember { mutableStateOf(false) }
+    var audioDecoderDialog by remember { mutableStateOf(false) }
+    var bufferSizeDialog by remember { mutableStateOf(false) }
+    var aspectRatioDialog by remember { mutableStateOf(false) }
 
     fun setPref(action: suspend () -> Unit) = scope.launch { action() }
 
@@ -110,6 +152,44 @@ fun PlaybackScreen(onBack: () -> Unit) {
                     subtitle = "${playerModeLabel(playerMode)} · ${playerModeDescription(playerMode)}",
                     onClick = { playerDialog = true },
                 )
+                SettingsRow(
+                    title = "Decodificador de video",
+                    subtitle = videoDecoderLabel(videoDecoder),
+                    onClick = { videoDecoderDialog = true },
+                )
+                SettingsRow(
+                    title = "Decodificador de audio",
+                    subtitle = audioDecoderLabel(audioDecoder),
+                    onClick = { audioDecoderDialog = true },
+                )
+                SettingsRow(
+                    title = "Tamaño del buffer",
+                    subtitle = bufferSizeLabel(bufferSize),
+                    onClick = { bufferSizeDialog = true },
+                )
+                Text(
+                    "Los cambios de decodificador y buffer se aplican al iniciar la próxima reproducción.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                SettingsSwitch(
+                    title = "Auto frame rate (AFR)",
+                    subtitle = "Ajusta la tasa de refresco de la pantalla a los fps del video",
+                    checked = afrEnabled,
+                    onCheckedChange = { setPref { prefs.setAfrEnabled(it) } },
+                )
+                SettingsRow(
+                    title = "Aspecto por defecto",
+                    subtitle = aspectRatioLabel(aspectRatio),
+                    onClick = { aspectRatioDialog = true },
+                )
+                SettingsSwitch(
+                    title = "Audio envolvente por defecto",
+                    subtitle = "Elige la pista 5.1 o superior cuando el video la traiga",
+                    checked = surroundDefault,
+                    onCheckedChange = { setPref { prefs.setSurroundDefault(it) } },
+                )
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -138,6 +218,58 @@ fun PlaybackScreen(onBack: () -> Unit) {
                 playerDialog = false
             },
             onDismiss = { playerDialog = false },
+        )
+    }
+
+    if (videoDecoderDialog) {
+        OptionsDialog(
+            title = "Decodificador de video",
+            options = videoDecoderOptions.map { it to videoDecoderLabel(it) },
+            selected = videoDecoder,
+            onSelect = {
+                setPref { prefs.setVideoDecoder(it) }
+                videoDecoderDialog = false
+            },
+            onDismiss = { videoDecoderDialog = false },
+        )
+    }
+
+    if (audioDecoderDialog) {
+        OptionsDialog(
+            title = "Decodificador de audio",
+            options = audioDecoderOptions.map { it to audioDecoderLabel(it) },
+            selected = audioDecoder,
+            onSelect = {
+                setPref { prefs.setAudioDecoder(it) }
+                audioDecoderDialog = false
+            },
+            onDismiss = { audioDecoderDialog = false },
+        )
+    }
+
+    if (bufferSizeDialog) {
+        OptionsDialog(
+            title = "Tamaño del buffer",
+            options = bufferSizeOptions.map { it to bufferSizeLabel(it) },
+            selected = bufferSize,
+            onSelect = {
+                setPref { prefs.setBufferSize(it) }
+                bufferSizeDialog = false
+            },
+            onDismiss = { bufferSizeDialog = false },
+        )
+    }
+
+    if (aspectRatioDialog) {
+        OptionsDialog(
+            title = "Aspecto por defecto",
+            options = aspectRatioOptions.map { it to aspectRatioLabel(it) },
+            selected = aspectRatio,
+            onSelect = {
+                setPref { prefs.setAspectRatio(it) }
+                aspectRatioDialog = false
+            },
+            onDismiss = { aspectRatioDialog = false },
         )
     }
 }

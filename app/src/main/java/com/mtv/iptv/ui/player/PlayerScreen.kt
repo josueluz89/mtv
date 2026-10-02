@@ -133,7 +133,11 @@ fun PlayerScreen(
     val activity = context as Activity
     val container = LocalAppContainer.current
     val manager = remember { container.playerManager }
-    val player = remember { manager.player }
+    // El player puede reconstruirse si cambian los ajustes de decodificación
+    // (ver PlayerManager.playerEpoch): re-leerlo para no quedarnos con una
+    // instancia obsoleta.
+    val playerEpoch by manager.playerEpoch.collectAsState()
+    val player = remember(playerEpoch) { manager.player }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -191,7 +195,7 @@ fun PlayerScreen(
             channel.icon,
             0,
         )
-        player.setPlaybackSpeed(1f)
+        manager.player.setPlaybackSpeed(1f)
         speed = 1f
         currentKey = "live:${channel.streamId}"
         currentTitle = channel.name
@@ -259,7 +263,8 @@ fun PlayerScreen(
     /** Arranca la reproducción aplicando la velocidad por defecto del ajuste. */
     fun startPlayback(positionMs: Long) {
         manager.play(url, mediaKey, title, imageUrl, positionMs)
-        player.setPlaybackSpeed(speed)
+        // Leer dinámico: play() puede haber reconstruido el player.
+        manager.player.setPlaybackSpeed(speed)
     }
 
     /**
@@ -375,7 +380,7 @@ fun PlayerScreen(
     // pide directamente al servidor (VodDurationProbe) y con eso se muestra
     // una barra de progreso manual cuyos saltos se intentan siempre, igual
     // que hacen otros reproductores.
-    LaunchedEffect(url, mediaKey) {
+    LaunchedEffect(url, mediaKey, player) {
         probedDurationMs = null
         var probeDone = false
         var ticksSinDuracion = 0
@@ -400,7 +405,7 @@ fun PlayerScreen(
     }
 
     // Siguiente episodio automático al terminar (si el ajuste está activo).
-    DisposableEffect(mediaKey) {
+    DisposableEffect(mediaKey, player) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
@@ -476,7 +481,10 @@ fun PlayerScreen(
                     playerViewRef = this
                 }
             },
-            update = { it.useController = !locked },
+            update = {
+                it.useController = !locked
+                if (it.player !== player) it.player = player
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .onGloballyPositioned { viewSize = it.size }
