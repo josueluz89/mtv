@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.mtv.iptv"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.mtv.iptv"
