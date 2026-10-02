@@ -62,6 +62,7 @@ import com.mtv.iptv.data.remote.subs.OpenSubtitlesClient
 import com.mtv.iptv.data.remote.subs.SubtitleResult
 import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.player.ExternalPlayer
+import com.mtv.iptv.player.MAX_AUTO_RETRIES
 import com.mtv.iptv.player.PlayerManager
 import com.mtv.iptv.player.ZapChannel
 import com.mtv.iptv.player.attachExternalSubtitle
@@ -120,6 +121,12 @@ fun TvPlayerOverlay(
     // Epoch del player: si el PlayerManager lo reconstruye, la UI recompone
     // (el sondeo y los diálogos leen siempre la instancia vigente).
     val epoch by manager.playerEpoch.collectAsState()
+
+    // Recuperación/error del playback (v1.9.2): estados visibles siempre,
+    // aunque los controles estén ocultos — son estado del playback, no del HUD.
+    val isRecovering by manager.isRecovering.collectAsState()
+    val recoverAttempt by manager.recoverAttempt.collectAsState()
+    val playbackError by manager.playbackError.collectAsState()
 
     var controlsVisible by remember { mutableStateOf(true) }
     var interactionTick by remember { mutableStateOf(0) }
@@ -449,6 +456,20 @@ fun TvPlayerOverlay(
                 }
             }
         }
+        // Indicador de recuperación / error final (VOD): siempre visible,
+        // aunque los controles estén ocultos — es estado del playback, no
+        // parte del HUD interactivo. El panel de error arranca el foco en
+        // "Reintentar" para operarlo con OK del D-pad.
+        if (isRecovering || playbackError != null) {
+            RecoveryHud(
+                isRecovering = isRecovering,
+                attempt = recoverAttempt,
+                error = playbackError,
+                onRetry = { manager.retryNow() },
+                onClose = onClose,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
     }
 
     if (showAudio) {
@@ -511,6 +532,100 @@ fun TvPlayerOverlay(
     }
     if (showOptions) {
         TvPlaybackOptionsDialog(onDismiss = { showOptions = false })
+    }
+}
+
+// ---------------- Recuperación de VOD: indicador + error final ----------------
+
+/**
+ * Indicador de recuperación automática y panel de error final (v1.9.2):
+ * cablea los estados del PlayerManager (isRecovering / recoverAttempt /
+ * playbackError / retryNow()) con el lenguaje visual del HUD — panel
+ * oscuro, tipografía blanca, botones D-pad.
+ *
+ * La recuperación muestra "Reconectando… (intento N de 3)" o
+ * "(verificando sesión)" cuando el intento es 0. El error final muestra
+ * el mensaje del manager con "Reintentar" (foco inicial) y "Cerrar"
+ * (mismo flujo existente de onClose).
+ */
+@Composable
+private fun RecoveryHud(
+    isRecovering: Boolean,
+    attempt: Int,
+    error: String?,
+    onRetry: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (!isRecovering && error == null) return
+
+    val retryFocus = remember { FocusRequester() }
+    LaunchedEffect(error) {
+        if (error != null) {
+            // Pequeña espera para que los botones ya estén compuestos.
+            delay(120)
+            try {
+                retryFocus.requestFocus()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .background(Color(0xDD000000), RoundedCornerShape(16.dp))
+            .padding(horizontal = 32.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (isRecovering) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(28.dp),
+                    strokeWidth = 3.dp,
+                    color = Color.White,
+                )
+                Spacer(Modifier.width(16.dp))
+                Text(
+                    text = if (attempt <= 0) {
+                        "Reconectando… (verificando sesión)"
+                    } else {
+                        "Reconectando… (intento $attempt de $MAX_AUTO_RETRIES)"
+                    },
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+            }
+        }
+        if (error != null) {
+            Text(
+                text = "No se pudo reproducir",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MtvOnBg,
+            )
+            Spacer(Modifier.height(20.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TvPlayerButton(
+                    label = "Reintentar",
+                    onClick = onRetry,
+                    modifier = Modifier.focusRequester(retryFocus),
+                )
+                TvPlayerButton(
+                    label = "Cerrar",
+                    onClick = onClose,
+                )
+            }
+        }
     }
 }
 
