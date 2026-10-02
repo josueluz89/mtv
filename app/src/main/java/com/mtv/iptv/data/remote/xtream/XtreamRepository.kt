@@ -174,21 +174,22 @@ class XtreamRepository(private val client: XtreamClient) {
      */
     suspend fun loginAuto(username: String, password: String): LoginResult =
         withContext(Dispatchers.IO) {
+            var winner: LoginResult? = null
+            var sawDenied = false
+            var lastError: Throwable? = null
             supervisorScope {
                 // Capacidad = nº de servidores: los send nunca suspenden.
                 val results = Channel<AutoProbe>(capacity = hiddenServers.size)
                 for (base in hiddenServers) {
                     launch { results.send(probeServer(base, username, password)) }
                 }
-                var sawDenied = false
-                var lastError: Throwable? = null
                 var remaining = hiddenServers.size
-                while (remaining > 0) {
+                while (remaining > 0 && winner == null) {
                     when (val r = results.receive()) {
                         is AutoProbe.Ok -> {
                             // Ganador: cancela los intentos que siguen en curso.
                             coroutineContext.cancelChildren()
-                            return@withContext LoginResult.Ok(
+                            winner = LoginResult.Ok(
                                 buildSession(r.api, r.baseUrl, username, password)
                             )
                         }
@@ -197,9 +198,9 @@ class XtreamRepository(private val client: XtreamClient) {
                     }
                     remaining--
                 }
-                if (sawDenied) LoginResult.AuthFailed
-                else LoginResult.NetworkError(lastError?.message ?: "Sin conexión con el servidor")
             }
+            winner ?: if (sawDenied) LoginResult.AuthFailed
+            else LoginResult.NetworkError(lastError?.message ?: "Sin conexión con el servidor")
         }
 
     /** Resultado de probar UN servidor oculto (con su fallback de esquema). */
