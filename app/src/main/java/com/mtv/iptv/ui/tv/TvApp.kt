@@ -529,7 +529,7 @@ fun TvNavColumn(
     LazyColumn(
         modifier = modifier
             .background(MtvBg)
-            .padding(vertical = 24.dp, horizontal = 12.dp),
+            .padding(vertical = 20.dp, horizontal = 10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         items(entries, key = { it.id }) { entry ->
@@ -574,7 +574,7 @@ private fun TvNavRow(
                 },
                 RoundedCornerShape(8.dp),
             )
-            .padding(horizontal = 12.dp, vertical = 11.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (entry.isFolder) {
@@ -582,9 +582,9 @@ private fun TvNavRow(
                 Icons.Default.Folder,
                 contentDescription = null,
                 tint = MtvGold,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(16.dp),
             )
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(8.dp))
         }
         Text(
             entry.label,
@@ -611,6 +611,10 @@ private fun TvNavRow(
  * Sección TV estilo TiviMate: grupos a la izquierda, lista de canales y
  * grilla de programación con franjas horarias. Sin datos de EPG (decisión
  * del dueño), las celdas muestran "Sin información".
+ *
+ * La columna arranca con dos carpetas especiales: "Todo" (todos los
+ * canales sin filtrar) y "★ Favoritos" (favoritos de canales que guarda
+ * el reproductor), y luego los grupos del proveedor con conteo.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -619,37 +623,57 @@ fun TvLiveMain() {
     val repo = container.xtreamRepository
 
     var groups by remember { mutableStateOf<List<XtreamCategory>>(emptyList()) }
-    var selectedGroup by remember { mutableStateOf<XtreamCategory?>(null) }
-    var channels by remember { mutableStateOf<List<XtreamLiveStream>>(emptyList()) }
+    // "__all__" = Todo, "__favs__" = Favoritos, o un categoryId.
+    var selectedId by remember { mutableStateOf("__all__") }
+    var allChannels by remember { mutableStateOf<List<XtreamLiveStream>>(emptyList()) }
+    // Favoritos de canales en vivo (los guarda el reproductor, kind "live").
+    val favEntities by container.favoritesRepository.observeAll()
+        .collectAsState(initial = emptyList())
     // Se recarga cuando el refresco automático invalida el caché.
     val refreshTick by container.catalogRefreshTick.collectAsState()
+
+    val serverId = repo.session?.server?.id ?: 0L
+    val favIds = remember(favEntities, serverId) {
+        favEntities
+            .filter { it.kind == "live" && it.serverId == serverId }
+            .map { it.refId }
+            .toSet()
+    }
 
     LaunchedEffect(refreshTick) {
         try {
             groups = repo.getLiveCategories().distinctBy { it.categoryId }
-            selectedGroup = groups.firstOrNull()
+            allChannels = repo.getLiveStreams(null)
         } catch (e: Exception) {
         }
     }
-    LaunchedEffect(selectedGroup, refreshTick) {
-        try {
-            channels = repo.getLiveStreams(selectedGroup?.categoryId)
-        } catch (e: Exception) {
-            channels = emptyList()
+
+    val channels = remember(selectedId, allChannels, favIds) {
+        when (selectedId) {
+            "__favs__" -> allChannels.filter { it.streamId.toString() in favIds }
+            "__all__" -> allChannels
+            else -> allChannels.filter { it.categoryId == selectedId }
         }
     }
 
     Row(Modifier.fillMaxSize()) {
-        val entries = remember(groups) {
-            groups.map { g ->
-                TvNavEntry(id = g.categoryId, label = g.categoryName)
+        val groupCounts = remember(allChannels) {
+            allChannels.groupingBy { it.categoryId }.eachCount()
+        }
+        val entries = remember(groups, groupCounts, allChannels, favIds) {
+            listOf(
+                TvNavEntry(id = "__all__", label = "Todo", count = allChannels.size, isFolder = true),
+                TvNavEntry(id = "__favs__", label = "★ Favoritos", count = favIds.size, isFolder = true),
+            ) + groups.mapNotNull { g ->
+                val total = groupCounts[g.categoryId] ?: 0
+                if (total > 0) TvNavEntry(id = g.categoryId, label = g.categoryName, count = total) else null
             }
         }
         TvNavColumn(
             entries = entries,
-            selectedId = selectedGroup?.categoryId,
-            onSelect = { e -> selectedGroup = groups.firstOrNull { it.categoryId == e.id } },
-            modifier = Modifier.width(300.dp).fillMaxHeight(),
+            selectedId = selectedId,
+            onSelect = { e -> selectedId = e.id },
+            modifier = Modifier.width(240.dp).fillMaxHeight(),
         )
         TvEpgGuide(
             channels = channels,
@@ -741,7 +765,7 @@ fun TvEpgGuide(
                         .padding(vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Spacer(Modifier.width(320.dp))
+                    Spacer(Modifier.width(260.dp))
                     slots.forEach { t ->
                         Text(
                             epgFormatTime(t),
@@ -804,7 +828,7 @@ private fun TvEpgRow(
     ) {
         // Celda del canal: número, logo, nombre.
         Row(
-            modifier = Modifier.width(312.dp),
+            modifier = Modifier.width(252.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -876,8 +900,10 @@ private fun sortVodItems(items: List<XtreamVodStream>, mode: String): List<Xtrea
 private fun sortSeriesItems(items: List<XtreamSeries>, mode: String): List<XtreamSeries> = when (mode) {
     "nombre" -> items.sortedBy { it.name.lowercase() }
     "rating" -> items.sortedByDescending { it.rating.toDoubleOrNull() ?: 0.0 }
-    // XtreamSeries SÍ trae `added` (String numérico): se usa como fecha de agregado.
-    "fecha" -> items.sortedByDescending { it.added.toLongOrNull() ?: 0L }
+    // `get_series` no trae `added` de forma fiable (los paneles mandan
+    // `last_modified`): se ordena por el campo que traiga datos, si no el
+    // criterio quedaba como no-op y parecía que "ordenar no servía".
+    "fecha" -> items.sortedByDescending { it.added.toLongOrNull() ?: it.lastModified.toLongOrNull() ?: 0L }
     else -> items // "lista": orden del proveedor
 }
 
@@ -891,7 +917,7 @@ private data class TvPosterData(
 )
 
 /**
- * Vista agrupada por categorías (solo "Todas"): stickyHeader por categoría
+ * Vista agrupada por categorías (solo "Todo"): stickyHeader por categoría
  * y filas de 6 pósters.
  */
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -1070,7 +1096,7 @@ private fun TvSortSwitchRow(
 
 /**
  * Sección Películas estilo TiviMate: carpetas a la izquierda
- * ("Todas las películas" + categorías con conteo), grilla de pósters
+ * ("Todo" + categorías con conteo), grilla de pósters
  * con rating a la derecha.
  */
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -1122,7 +1148,7 @@ fun TvMoviesMain(
     }
 
     val sorted = remember(items, sortMode) { sortVodItems(items, sortMode) }
-    // Vista agrupada (solo "Todas"): grupos en el orden de las carpetas.
+    // Vista agrupada (solo "Todo"): grupos en el orden de las carpetas.
     val grouped = remember(sorted, folders) {
         val byCat = sorted.groupBy { it.categoryId }
         folders.mapNotNull { (cat, _) ->
@@ -1174,17 +1200,23 @@ fun TvMoviesMain(
 
     Row(Modifier.fillMaxSize()) {
         val entries = remember(folders) {
-            listOf(TvNavEntry(id = "__all__", label = "Todas las películas")) +
-                folders.map { (cat, total) ->
-                    TvNavEntry(id = cat.categoryId, label = cat.categoryName, count = total, isFolder = true)
-                }
+            listOf(
+                TvNavEntry(
+                    id = "__all__",
+                    label = "Todo",
+                    count = folders.sumOf { it.second },
+                    isFolder = true,
+                ),
+            ) + folders.map { (cat, total) ->
+                TvNavEntry(id = cat.categoryId, label = cat.categoryName, count = total, isFolder = true)
+            }
         }
         if (selectedId == null) {
             TvNavColumn(
                 entries = entries,
                 selectedId = "__all__",
                 onSelect = { e -> selectedId = e.id.takeIf { it != "__all__" } },
-                modifier = Modifier.width(300.dp).fillMaxHeight(),
+                modifier = Modifier.width(240.dp).fillMaxHeight(),
             )
         }
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
@@ -1245,7 +1277,7 @@ fun TvMoviesMain(
 
 /**
  * Sección Series estilo TiviMate: carpetas a la izquierda
- * ("Todos los shows" + categorías con conteo), grilla de pósters a la derecha.
+ * ("Todo" + categorías con conteo), grilla de pósters a la derecha.
  */
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -1296,7 +1328,7 @@ fun TvSeriesMain(
     }
 
     val sorted = remember(items, sortMode) { sortSeriesItems(items, sortMode) }
-    // Vista agrupada (solo "Todas"): grupos en el orden de las carpetas.
+    // Vista agrupada (solo "Todo"): grupos en el orden de las carpetas.
     val grouped = remember(sorted, folders) {
         val byCat = sorted.groupBy { it.categoryId }
         folders.mapNotNull { (cat, _) ->
@@ -1348,17 +1380,23 @@ fun TvSeriesMain(
 
     Row(Modifier.fillMaxSize()) {
         val entries = remember(folders) {
-            listOf(TvNavEntry(id = "__all__", label = "Todos los shows")) +
-                folders.map { (cat, total) ->
-                    TvNavEntry(id = cat.categoryId, label = cat.categoryName, count = total, isFolder = true)
-                }
+            listOf(
+                TvNavEntry(
+                    id = "__all__",
+                    label = "Todo",
+                    count = folders.sumOf { it.second },
+                    isFolder = true,
+                ),
+            ) + folders.map { (cat, total) ->
+                TvNavEntry(id = cat.categoryId, label = cat.categoryName, count = total, isFolder = true)
+            }
         }
         if (selectedId == null) {
             TvNavColumn(
                 entries = entries,
                 selectedId = "__all__",
                 onSelect = { e -> selectedId = e.id.takeIf { it != "__all__" } },
-                modifier = Modifier.width(300.dp).fillMaxHeight(),
+                modifier = Modifier.width(240.dp).fillMaxHeight(),
             )
         }
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {

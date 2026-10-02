@@ -68,6 +68,13 @@ data class XtreamSeries(
     @Serializable(with = LenientStringSerializer::class)
     val categoryId: String = "",
     val added: String = "",
+    /**
+     * `get_series` rara vez trae `added`: los paneles Xtream mandan el
+     * timestamp en `last_modified`. Se mapea para que "fecha de agregado"
+     * sí tenga con qué ordenar en series.
+     */
+    @SerialName("last_modified")
+    val lastModified: String = "",
 )
 
 @Serializable
