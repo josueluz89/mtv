@@ -42,6 +42,16 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Keystore debug fijo en el repo: todos los builds comparten la
+            // misma firma y las actualizaciones no piden desinstalar.
+            signingConfig = signingConfigs.getByName("debug").apply {
+                storeFile = rootProject.file("debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
