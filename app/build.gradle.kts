@@ -29,8 +29,8 @@ android {
         applicationId = "com.mtv.iptv"
         minSdk = 26
         targetSdk = 34
-        versionCode = 14
-        versionName = "1.7.0"
+        versionCode = 15
+        versionName = "1.8.0"
 
         // FFmpeg solo se compila para ARM (teléfonos, Android TV, Firestick).
         ndk {

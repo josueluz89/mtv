@@ -22,6 +22,12 @@ data class TmdbSearchResult(
 )
 
 @Serializable
+data class TmdbGenre(
+    val id: Int = 0,
+    val name: String = "",
+)
+
+@Serializable
 data class TmdbMovieDetails(
     val id: Int = 0,
     val title: String = "",
@@ -31,6 +37,7 @@ data class TmdbMovieDetails(
     @SerialName("release_date") val releaseDate: String = "",
     @SerialName("vote_average") val voteAverage: Double = 0.0,
     val runtime: Int = 0,
+    val genres: List<TmdbGenre> = emptyList(),
     val credits: TmdbCredits = TmdbCredits(),
     val similar: TmdbPagedResults = TmdbPagedResults(),
     val videos: TmdbVideos = TmdbVideos(),
@@ -47,6 +54,9 @@ data class TmdbTvDetails(
     @SerialName("backdrop_path") val backdropPath: String? = null,
     @SerialName("first_air_date") val firstAirDate: String = "",
     @SerialName("vote_average") val voteAverage: Double = 0.0,
+    val genres: List<TmdbGenre> = emptyList(),
+    @SerialName("episode_run_time") val episodeRunTime: List<Int> = emptyList(),
+    @SerialName("number_of_seasons") val numberOfSeasons: Int = 0,
     val credits: TmdbCredits = TmdbCredits(),
     val similar: TmdbPagedResults = TmdbPagedResults(),
     val videos: TmdbVideos = TmdbVideos(),
@@ -63,7 +73,17 @@ data class TmdbProductionCompany(
 )
 
 @Serializable
-data class TmdbCredits(val cast: List<TmdbCastMember> = emptyList())
+data class TmdbCredits(
+    val cast: List<TmdbCastMember> = emptyList(),
+    val crew: List<TmdbCrewMember> = emptyList(),
+)
+
+@Serializable
+data class TmdbCrewMember(
+    val id: Int = 0,
+    val name: String = "",
+    val job: String = "",
+)
 
 @Serializable
 data class TmdbCastMember(

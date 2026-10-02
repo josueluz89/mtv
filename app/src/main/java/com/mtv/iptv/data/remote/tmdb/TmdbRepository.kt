@@ -17,6 +17,12 @@ data class TmdbMedia(
     val companies: List<TmdbProductionCompany> = emptyList(),
     /** ID numérico de TMDB (para buscar subtítulos por ID en OpenSubtitles). */
     val tmdbId: Int? = null,
+    /** Géneros (para el detalle estilo TiviMate). */
+    val genres: List<String> = emptyList(),
+    /** Director(es) (para el detalle estilo TiviMate). */
+    val director: String? = null,
+    /** Duración en minutos (película) o duración típica de episodio (serie). */
+    val runtimeMinutes: Int? = null,
 )
 
 /** Detalle de una persona (actor/actriz) + su filmografía ordenada por rating. */
@@ -86,6 +92,12 @@ class TmdbRepository(private val client: TmdbClient) {
                         ?: d.videos.results.firstOrNull { it.site.equals("YouTube", ignoreCase = true) }?.key,
                     companies = d.productionCompanies,
                     tmdbId = hit.id,
+                    genres = d.genres.map { it.name }.filter { it.isNotBlank() },
+                    director = d.credits.crew
+                        .filter { it.job.equals("Director", ignoreCase = true) }
+                        .map { it.name }.filter { it.isNotBlank() }
+                        .distinct().take(3).joinToString(", ").ifBlank { null },
+                    runtimeMinutes = d.runtime.takeIf { it > 0 },
                 )
             } catch (e: Exception) {
                 null
@@ -118,6 +130,12 @@ class TmdbRepository(private val client: TmdbClient) {
                     ?: d.videos.results.firstOrNull { it.site.equals("YouTube", ignoreCase = true) }?.key,
                 companies = d.productionCompanies,
                 tmdbId = hit.id,
+                genres = d.genres.map { it.name }.filter { it.isNotBlank() },
+                director = d.credits.crew
+                    .filter { it.job.equals("Director", ignoreCase = true) }
+                    .map { it.name }.filter { it.isNotBlank() }
+                    .distinct().take(3).joinToString(", ").ifBlank { null },
+                runtimeMinutes = d.episodeRunTime.firstOrNull()?.takeIf { it > 0 },
             )
         } catch (e: Exception) {
             null
