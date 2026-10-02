@@ -37,4 +37,19 @@ class UserPrefs(private val context: Context) {
             it[passwordKey] = password
         }
     }
+
+    private val sortVodKey = stringPreferencesKey("sort_vod")
+    private val sortSeriesKey = stringPreferencesKey("sort_series")
+
+    /** Orden del catálogo ("nombre" | "recientes" | "rating" | "anio"). Default "nombre". */
+    val sortVod: Flow<String> = context.dataStore.data.map { it[sortVodKey] ?: "nombre" }
+    val sortSeries: Flow<String> = context.dataStore.data.map { it[sortSeriesKey] ?: "nombre" }
+
+    suspend fun setSortVod(value: String) {
+        context.dataStore.edit { it[sortVodKey] = value }
+    }
+
+    suspend fun setSortSeries(value: String) {
+        context.dataStore.edit { it[sortSeriesKey] = value }
+    }
 }

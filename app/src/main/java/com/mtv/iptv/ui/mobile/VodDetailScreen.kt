@@ -63,7 +63,13 @@ import com.mtv.iptv.di.LocalAppContainer
 import kotlinx.coroutines.launch
 
 @Composable
-fun VodDetailScreen(streamId: Int, onBack: () -> Unit, onVod: (Int) -> Unit) {
+fun VodDetailScreen(
+    streamId: Int,
+    onBack: () -> Unit,
+    onVod: (Int) -> Unit,
+    onActor: (Int) -> Unit,
+    onCompany: (Int) -> Unit,
+) {
     val context = LocalContext.current
     val container = LocalAppContainer.current
     val scope = rememberCoroutineScope()
@@ -261,7 +267,25 @@ fun VodDetailScreen(streamId: Int, onBack: () -> Unit, onVod: (Int) -> Unit) {
                 Spacer(Modifier.height(16.dp))
                 Text("Reparto", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
                 Spacer(Modifier.height(8.dp))
-                Box(Modifier.padding(horizontal = 16.dp)) { CastRow(cast) }
+                Box(Modifier.padding(horizontal = 16.dp)) { CastRow(cast, onActorClick = onActor) }
+            }
+            val companies = tmdb?.companies.orEmpty()
+            if (companies.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                Text("Productoras", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
+                Spacer(Modifier.height(8.dp))
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(companies, key = { it.id }) { c ->
+                        CompanyChip(
+                            logoUrl = TmdbClient.posterUrl(c.logoPath),
+                            name = c.name,
+                            onClick = { if (c.id != 0) onCompany(c.id) },
+                        )
+                    }
+                }
             }
             val similar = tmdb?.similar.orEmpty()
             if (similar.isNotEmpty()) {

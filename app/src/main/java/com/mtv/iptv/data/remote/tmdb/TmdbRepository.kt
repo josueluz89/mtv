@@ -14,6 +14,20 @@ data class TmdbMedia(
     val cast: List<TmdbCastMember>,
     val similar: List<TmdbSearchResult>,
     val trailerKey: String?,
+    val companies: List<TmdbProductionCompany> = emptyList(),
+)
+
+/** Detalle de una persona (actor/actriz) + su filmografía ordenada por rating. */
+data class PersonDetail(
+    val details: TmdbPersonDetails,
+    val filmography: List<TmdbCreditItem>,
+)
+
+/** Detalle de una productora + su catálogo (películas y series por separado). */
+data class CompanyDetail(
+    val details: TmdbCompanyDetails,
+    val movies: List<TmdbSearchResult>,
+    val series: List<TmdbSearchResult>,
 )
 
 class TmdbRepository(private val client: TmdbClient) {
@@ -44,6 +58,7 @@ class TmdbRepository(private val client: TmdbClient) {
                     trailerKey = d.videos.results
                         .firstOrNull { it.site.equals("YouTube", ignoreCase = true) && it.type.equals("Trailer", ignoreCase = true) }?.key
                         ?: d.videos.results.firstOrNull { it.site.equals("YouTube", ignoreCase = true) }?.key,
+                    companies = d.productionCompanies,
                 )
             } catch (e: Exception) {
                 null
@@ -74,11 +89,41 @@ class TmdbRepository(private val client: TmdbClient) {
                 trailerKey = d.videos.results
                     .firstOrNull { it.site.equals("YouTube", ignoreCase = true) && it.type.equals("Trailer", ignoreCase = true) }?.key
                     ?: d.videos.results.firstOrNull { it.site.equals("YouTube", ignoreCase = true) }?.key,
+                companies = d.productionCompanies,
             )
         } catch (e: Exception) {
             null
         }
         seriesCache[key] = result
         result
+    }
+
+    /** Detalle de una persona + filmografía (ordenada por rating, sin duplicados). */
+    suspend fun getPerson(personId: Int): PersonDetail? = withContext(Dispatchers.IO) {
+        try {
+            val d = client.api.personDetails(personId, client.apiKey)
+            val filmography = d.combinedCredits.cast
+                .filter { it.displayTitle().isNotBlank() }
+                .distinctBy { it.id }
+                .sortedByDescending { it.voteAverage }
+                .take(30)
+            PersonDetail(d, filmography)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Detalle de una productora + catálogo (discover películas y series). */
+    suspend fun getCompany(companyId: Int): CompanyDetail? = withContext(Dispatchers.IO) {
+        try {
+            val d = client.api.companyDetails(companyId, client.apiKey)
+            val movies = client.api.discoverMovie(client.apiKey, companyId)
+                .results.distinctBy { it.id }.take(30)
+            val series = client.api.discoverTv(client.apiKey, companyId)
+                .results.distinctBy { it.id }.take(30)
+            CompanyDetail(d, movies, series)
+        } catch (e: Exception) {
+            null
+        }
     }
 }

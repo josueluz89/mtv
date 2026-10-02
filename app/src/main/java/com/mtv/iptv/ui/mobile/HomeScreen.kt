@@ -38,7 +38,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    onBrowse: (kind: String, categoryId: String, categoryName: String) -> Unit,
+    onSection: (String) -> Unit,
     onVod: (Int) -> Unit,
     onSeries: (Int) -> Unit,
     onFavorites: () -> Unit,
@@ -149,7 +149,7 @@ fun HomeScreen(
                 if (liveItems.isNotEmpty()) {
                     item {
                         SectionHeader("En vivo") {
-                            onBrowse("live", "all", "En vivo")
+                            onSection("live")
                         }
                     }
                     item {
@@ -178,7 +178,7 @@ fun HomeScreen(
                 if (vodItems.isNotEmpty()) {
                     item {
                         SectionHeader("Películas") {
-                            onBrowse("vod", "all", "Películas")
+                            onSection("vod")
                         }
                     }
                     item {
@@ -199,7 +199,7 @@ fun HomeScreen(
                 if (seriesItems.isNotEmpty()) {
                     item {
                         SectionHeader("Series") {
-                            onBrowse("series", "all", "Series")
+                            onSection("series")
                         }
                     }
                     item {

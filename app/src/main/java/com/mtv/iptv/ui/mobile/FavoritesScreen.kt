@@ -43,6 +43,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FavoritesScreen(
+    kindFilter: String? = null,
     onBack: () -> Unit,
     onVod: (Int) -> Unit,
     onSeries: (Int) -> Unit,
@@ -52,6 +53,7 @@ fun FavoritesScreen(
     val scope = rememberCoroutineScope()
     val repo = container.xtreamRepository
     val favorites by container.favoritesRepository.observeAll().collectAsState(initial = emptyList())
+    val shown = if (kindFilter == null) favorites else favorites.filter { it.kind == kindFilter }
 
     fun open(fav: FavoriteEntity) {
         when (fav.kind) {
@@ -73,7 +75,12 @@ fun FavoritesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Favoritos") },
+                title = {
+                    Text(
+                        if (kindFilter == null) "Favoritos"
+                        else "Favoritos · ${kindLabel(kindFilter)}"
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Atrás")
@@ -82,7 +89,7 @@ fun FavoritesScreen(
             )
         },
     ) { padding ->
-        if (favorites.isEmpty()) {
+        if (shown.isEmpty()) {
             ErrorBox(
                 message = "Todavía no tenés favoritos.",
                 onRetry = onBack,
@@ -97,7 +104,7 @@ fun FavoritesScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(favorites, key = { "${it.serverId}-${it.kind}-${it.refId}" }) { fav ->
+            items(shown, key = { "${it.serverId}-${it.kind}-${it.refId}" }) { fav ->
                 Card(
                     onClick = { open(fav) },
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),

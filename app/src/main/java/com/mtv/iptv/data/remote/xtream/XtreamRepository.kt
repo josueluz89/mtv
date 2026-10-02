@@ -243,6 +243,13 @@ class XtreamRepository(private val client: XtreamClient) {
         all.firstOrNull { com.mtv.iptv.data.remote.tmdb.TitleCleaner.clean(it.name).title.lowercase() == target }
     }
 
+    /** Busca una serie por título limpio (para enlazar filmografías de TMDB con el servidor). */
+    suspend fun findSeriesByTitle(cleanTitle: String): XtreamSeries? = withContext(Dispatchers.IO) {
+        val all = getSeries(null)
+        val target = cleanTitle.lowercase()
+        all.firstOrNull { com.mtv.iptv.data.remote.tmdb.TitleCleaner.clean(it.name).title.lowercase() == target }
+    }
+
     // ---------------- URLs de reproducción ----------------
 
     fun liveUrl(streamId: Int): String {

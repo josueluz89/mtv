@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.ExoPlayer
 import com.mtv.iptv.data.local.db.PlaybackEntity
@@ -14,16 +15,35 @@ import kotlinx.coroutines.withContext
 /**
  * Un solo ExoPlayer para toda la app (HLS/DASH/TS progresivo).
  * Guarda y restaura la posición en [PlaybackRepository].
+ *
+ * NOTA DE HILOS: ExoPlayer exige que TODO acceso directo a `player`
+ * (currentPosition, duration, videoFormat, play, seekTo, currentTracks,
+ * setPlaybackSpeed...) ocurra en el hilo principal (el que creó el player).
+ * [play], [stop], [audioTracks], [textTracks], [selectAudio],
+ * [clearAudioOverride], [selectText] y [disableText] se llaman siempre desde
+ * la UI, así que están bien. [savePosition] es suspend y por eso primero lee
+ * posición/duración en [Dispatchers.Main] y solo después escribe en Room en
+ * [Dispatchers.IO].
  */
 class PlayerManager(
     appContext: Context,
     private val playbackRepository: PlaybackRepository,
 ) {
 
+    // NOTA DE CODECS: no se ponen límites de tamaño de video, bitrate máximo
+    // ni exclusiones de Dolby Vision en el selector. 4K, Dolby Vision,
+    // HDR10/HDR10+, HLS, DASH y TS están permitidos y se prefiere
+    // decodificación por hardware (ver renderersFactory abajo).
     private val trackSelector = DefaultTrackSelector(appContext)
 
-    val player: ExoPlayer = ExoPlayer.Builder(appContext)
+    private val renderersFactory = DefaultRenderersFactory(appContext)
+        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+        .setEnableDecoderFallback(true)
+
+    val player: ExoPlayer = ExoPlayer.Builder(appContext, renderersFactory)
         .setTrackSelector(trackSelector)
+        .setSeekBackIncrementMs(10_000)
+        .setSeekForwardIncrementMs(10_000)
         .build()
 
     val selector: DefaultTrackSelector get() = trackSelector
@@ -54,24 +74,30 @@ class PlayerManager(
     }
 
     /** Guarda la posición actual (para "Seguir viendo"). */
-    suspend fun savePosition() = withContext(Dispatchers.IO) {
-        val key = currentMediaKey
-        if (key.isBlank()) return@withContext
-        val pos = player.currentPosition
-        val dur = player.duration.takeIf { it > 0 } ?: 0L
-        // Si ya terminó (últimos 10s), guardar 0 para no reanudar al final.
-        val positionToSave = if (dur > 0 && pos >= dur - 10_000) 0L else pos
-        playbackRepository.save(
-            PlaybackEntity(
-                mediaKey = key,
-                name = currentTitle,
-                imageUrl = currentImageUrl,
-                url = currentUrl,
-                positionMs = positionToSave,
-                durationMs = dur,
-                updatedAt = System.currentTimeMillis(),
+    suspend fun savePosition() {
+        // Leer en el hilo main: player.currentPosition/duration fuera del hilo
+        // principal lanza IllegalStateException ("Player is accessed on the wrong thread").
+        val (pos, dur) = withContext(Dispatchers.Main) {
+            player.currentPosition to player.duration
+        }
+        withContext(Dispatchers.IO) {
+            val key = currentMediaKey
+            if (key.isBlank()) return@withContext
+            val duration = dur.takeIf { it > 0 } ?: 0L
+            // Si ya terminó (últimos 10s), guardar 0 para no reanudar al final.
+            val positionToSave = if (duration > 0 && pos >= duration - 10_000) 0L else pos
+            playbackRepository.save(
+                PlaybackEntity(
+                    mediaKey = key,
+                    name = currentTitle,
+                    imageUrl = currentImageUrl,
+                    url = currentUrl,
+                    positionMs = positionToSave,
+                    durationMs = duration,
+                    updatedAt = System.currentTimeMillis(),
+                )
             )
-        )
+        }
     }
 
     fun release() {

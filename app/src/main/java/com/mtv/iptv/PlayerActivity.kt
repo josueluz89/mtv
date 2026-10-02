@@ -4,7 +4,11 @@ import android.app.UiModeManager
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.Color
 import android.os.Bundle
+import android.view.Gravity
+import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
@@ -56,6 +60,12 @@ class PlayerActivity : ComponentActivity() {
         val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
 
         if (isTv) {
+            // Rama TV: PlayerView con su controlador (D-pad) dentro de un
+            // FrameLayout con el título del contenido arriba a la izquierda,
+            // semi-transparente, para que se sienta como un reproductor de TV real.
+            val frame = FrameLayout(this).apply {
+                setBackgroundColor(Color.BLACK)
+            }
             val playerView = PlayerView(this).apply {
                 useController = true
                 setShowPreviousButton(false)
@@ -63,7 +73,35 @@ class PlayerActivity : ComponentActivity() {
                 controllerShowTimeoutMs = 4000
             }
             playerView.player = manager.player
-            setContentView(playerView)
+            frame.addView(
+                playerView,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            if (title.isNotBlank()) {
+                val density = resources.displayMetrics.density
+                val titleView = TextView(this).apply {
+                    text = title
+                    setTextColor(Color.WHITE)
+                    textSize = 18f
+                    setBackgroundColor(0x99000000)
+                    val hPad = (16 * density).toInt()
+                    val vPad = (8 * density).toInt()
+                    setPadding(hPad, vPad, hPad, vPad)
+                }
+                val titleLp = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    gravity = Gravity.START or Gravity.TOP
+                    val margin = (16 * density).toInt()
+                    setMargins(margin, margin, margin, margin)
+                }
+                frame.addView(titleView, titleLp)
+            }
+            setContentView(frame)
             // En TV se continúa automáticamente donde quedó (sin diálogo).
             lifecycleScope.launch {
                 val saved = container.playbackRepository.get(mediaKey)

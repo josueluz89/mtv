@@ -171,9 +171,12 @@ fun ContinueWatchingCard(
     }
 }
 
-/** Fila de reparto con foto circular. */
+/** Fila de reparto con foto circular. Cada actor es tocable (abre su ficha). */
 @Composable
-fun CastRow(cast: List<com.mtv.iptv.data.remote.tmdb.TmdbCastMember>) {
+fun CastRow(
+    cast: List<com.mtv.iptv.data.remote.tmdb.TmdbCastMember>,
+    onActorClick: (Int) -> Unit = {},
+) {
     androidx.compose.foundation.lazy.LazyRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxWidth(),
@@ -181,7 +184,9 @@ fun CastRow(cast: List<com.mtv.iptv.data.remote.tmdb.TmdbCastMember>) {
         items(cast.size) { i ->
             val member = cast[i]
             Column(
-                modifier = Modifier.width(72.dp),
+                modifier = Modifier
+                    .width(72.dp)
+                    .safeClickable { if (member.id != 0) onActorClick(member.id) },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 AsyncImage(
@@ -203,6 +208,36 @@ fun CastRow(cast: List<com.mtv.iptv.data.remote.tmdb.TmdbCastMember>) {
                 )
             }
         }
+    }
+}
+
+/** Chip de productora: logo + nombre, tocable (abre su ficha). */
+@Composable
+fun CompanyChip(logoUrl: String?, name: String, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(110.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .safeClickable(onClick = onClick)
+            .padding(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        AsyncImage(
+            model = logoUrl,
+            contentDescription = name,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            name,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

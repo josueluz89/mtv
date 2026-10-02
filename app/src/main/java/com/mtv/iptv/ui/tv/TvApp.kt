@@ -1,5 +1,6 @@
 package com.mtv.iptv.ui.tv
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -49,6 +50,7 @@ import com.mtv.iptv.data.remote.tmdb.TmdbMedia
 import com.mtv.iptv.data.remote.xtream.LoginResult
 import com.mtv.iptv.data.remote.xtream.SeriesInfoResponse
 import com.mtv.iptv.data.remote.xtream.VodInfoResponse
+import com.mtv.iptv.data.remote.xtream.XtreamCategory
 import com.mtv.iptv.data.remote.xtream.XtreamLiveStream
 import com.mtv.iptv.data.remote.xtream.XtreamSeries
 import com.mtv.iptv.data.remote.xtream.XtreamVodStream
@@ -72,6 +74,7 @@ fun TvApp() {
             }
             composable("tv_browse") {
                 TvBrowseScreen(
+                    onSection = { kind -> navController.navigate("tv_section/$kind") },
                     onVod = { navController.navigate("tv_vod/$it") },
                     onSeries = { navController.navigate("tv_series/$it") },
                     onLogout = {
@@ -79,6 +82,35 @@ fun TvApp() {
                             popUpTo("tv_browse") { inclusive = true }
                         }
                     },
+                )
+            }
+            composable(
+                "tv_section/{kind}",
+                arguments = listOf(navArgument("kind") { type = NavType.StringType }),
+            ) { entry ->
+                TvSectionScreen(
+                    kind = entry.arguments?.getString("kind").orEmpty(),
+                    onBack = { navController.popBackStack() },
+                    onCategory = { kind, categoryId, categoryName ->
+                        navController.navigate("tv_items/$kind/$categoryId/${Uri.encode(categoryName)}")
+                    },
+                )
+            }
+            composable(
+                "tv_items/{kind}/{categoryId}/{categoryName}",
+                arguments = listOf(
+                    navArgument("kind") { type = NavType.StringType },
+                    navArgument("categoryId") { type = NavType.StringType },
+                    navArgument("categoryName") { type = NavType.StringType },
+                ),
+            ) { entry ->
+                TvCategoryItemsScreen(
+                    kind = entry.arguments?.getString("kind").orEmpty(),
+                    categoryId = entry.arguments?.getString("categoryId").orEmpty(),
+                    categoryName = entry.arguments?.getString("categoryName").orEmpty(),
+                    onBack = { navController.popBackStack() },
+                    onVod = { navController.navigate("tv_vod/$it") },
+                    onSeries = { navController.navigate("tv_series/$it") },
                 )
             }
             composable(
@@ -206,6 +238,7 @@ fun TvServersScreen(onConnected: () -> Unit) {
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalTvFoundationApi::class)
 @Composable
 fun TvBrowseScreen(
+    onSection: (String) -> Unit,
     onVod: (Int) -> Unit,
     onSeries: (Int) -> Unit,
     onLogout: () -> Unit,
@@ -265,7 +298,12 @@ fun TvBrowseScreen(
             }
         }
         if (liveItems.isNotEmpty()) {
-            item { Text("En vivo", style = MaterialTheme.typography.headlineSmall) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("En vivo", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                    Button(onClick = { onSection("live") }) { Text("Ver todo") }
+                }
+            }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(liveItems, key = { "${it.streamId}:${it.name}" }) { s ->
@@ -277,7 +315,12 @@ fun TvBrowseScreen(
             }
         }
         if (vodItems.isNotEmpty()) {
-            item { Text("Películas", style = MaterialTheme.typography.headlineSmall) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Películas", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                    Button(onClick = { onSection("vod") }) { Text("Ver todo") }
+                }
+            }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(vodItems, key = { "${it.streamId}:${it.name}" }) { v ->
@@ -289,7 +332,12 @@ fun TvBrowseScreen(
             }
         }
         if (seriesItems.isNotEmpty()) {
-            item { Text("Series", style = MaterialTheme.typography.headlineSmall) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Series", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                    Button(onClick = { onSection("series") }) { Text("Ver todo") }
+                }
+            }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(seriesItems, key = { "${it.seriesId}:${it.name}" }) { s ->
@@ -512,6 +560,186 @@ fun TvSeriesDetailsScreen(seriesId: Int, onBack: () -> Unit) {
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------- Sección → categorías (TV) ----------------
+
+private fun tvSectionTitle(kind: String): String = when (kind) {
+    "live" -> "En vivo"
+    "vod" -> "Películas"
+    "series" -> "Series"
+    else -> "Explorar"
+}
+
+/** Pantalla de sección en TV: tarjetas de categorías navegables con D-pad. */
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalTvFoundationApi::class)
+@Composable
+fun TvSectionScreen(
+    kind: String,
+    onBack: () -> Unit,
+    onCategory: (kind: String, categoryId: String, categoryName: String) -> Unit,
+) {
+    val container = LocalAppContainer.current
+    val repo = container.xtreamRepository
+
+    var categories by remember { mutableStateOf<List<XtreamCategory>>(emptyList()) }
+
+    LaunchedEffect(kind) {
+        try {
+            categories = when (kind) {
+                "live" -> repo.getLiveCategories()
+                "vod" -> repo.getVodCategories()
+                else -> repo.getSeriesCategories()
+            }.distinctBy { it.categoryId }
+        } catch (e: Exception) {
+            categories = emptyList()
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(32.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onBack) { Text("Atrás") }
+                Spacer(Modifier.width(16.dp))
+                Text(
+                    tvSectionTitle(kind),
+                    style = MaterialTheme.typography.displaySmall,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        items(categories, key = { "${it.categoryId}:${it.categoryName}" }) { cat ->
+            Card(
+                onClick = { onCategory(kind, cat.categoryId, cat.categoryName) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    cat.categoryName,
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.padding(20.dp),
+                )
+            }
+        }
+    }
+}
+
+// ---------------- Items de una categoría (TV) ----------------
+
+/**
+ * Items de una categoría en TV: fila de botones de categoría (para cambiar)
+ * y fila de tarjetas de contenido, todo navegable con D-pad.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalTvFoundationApi::class)
+@Composable
+fun TvCategoryItemsScreen(
+    kind: String,
+    categoryId: String,
+    categoryName: String,
+    onBack: () -> Unit,
+    onVod: (Int) -> Unit,
+    onSeries: (Int) -> Unit,
+) {
+    val context = LocalContext.current
+    val container = LocalAppContainer.current
+    val repo = container.xtreamRepository
+
+    var categories by remember { mutableStateOf<List<XtreamCategory>>(emptyList()) }
+    var selectedCat by remember { mutableStateOf(categoryId) }
+    var liveList by remember { mutableStateOf<List<XtreamLiveStream>>(emptyList()) }
+    var vodList by remember { mutableStateOf<List<XtreamVodStream>>(emptyList()) }
+    var seriesList by remember { mutableStateOf<List<XtreamSeries>>(emptyList()) }
+
+    LaunchedEffect(kind) {
+        try {
+            categories = when (kind) {
+                "live" -> repo.getLiveCategories()
+                "vod" -> repo.getVodCategories()
+                else -> repo.getSeriesCategories()
+            }.distinctBy { it.categoryId }
+        } catch (e: Exception) {
+            categories = emptyList()
+        }
+    }
+
+    LaunchedEffect(kind, selectedCat) {
+        try {
+            val cat = selectedCat.takeIf { it != "all" }
+            when (kind) {
+                "live" -> liveList = repo.getLiveStreams(cat)
+                "vod" -> vodList = repo.getVodStreams(cat)
+                else -> seriesList = repo.getSeries(cat)
+            }
+        } catch (e: Exception) {
+            // filas vacías
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(32.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onBack) { Text("Atrás") }
+                Spacer(Modifier.width(16.dp))
+                Text(
+                    categoryName.ifBlank { tvSectionTitle(kind) },
+                    style = MaterialTheme.typography.displaySmall,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    Button(onClick = { selectedCat = "all" }) {
+                        Text(if (selectedCat == "all") "● Todo" else "Todo")
+                    }
+                }
+                items(categories, key = { "${it.categoryId}:${it.categoryName}" }) { cat ->
+                    Button(onClick = { selectedCat = cat.categoryId }) {
+                        Text(if (selectedCat == cat.categoryId) "● ${cat.categoryName}" else cat.categoryName)
+                    }
+                }
+            }
+        }
+        item {
+            when (kind) {
+                "live" -> LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    items(liveList, key = { "${it.streamId}:${it.name}" }) { s ->
+                        TvMediaCard(title = s.name, imageUrl = s.streamIcon.ifBlank { null }) {
+                            PlayerActivity.start(
+                                context,
+                                repo.liveUrl(s.streamId),
+                                s.name,
+                                "live:${s.streamId}",
+                                s.streamIcon,
+                            )
+                        }
+                    }
+                }
+                "vod" -> LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    items(vodList, key = { "${it.streamId}:${it.name}" }) { v ->
+                        TvMediaCard(title = v.name, imageUrl = v.streamIcon.ifBlank { null }) {
+                            onVod(v.streamId)
+                        }
+                    }
+                }
+                else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    items(seriesList, key = { "${it.seriesId}:${it.name}" }) { s ->
+                        TvMediaCard(title = s.name, imageUrl = s.cover.ifBlank { null }) {
+                            onSeries(s.seriesId)
                         }
                     }
                 }

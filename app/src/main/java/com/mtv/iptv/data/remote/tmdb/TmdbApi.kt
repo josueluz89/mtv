@@ -38,4 +38,35 @@ interface TmdbApi {
         @Query("language") language: String = "es",
         @Query("append_to_response") append: String = "credits,similar,videos,recommendations",
     ): TmdbTvDetails
+
+    @GET("person/{id}")
+    suspend fun personDetails(
+        @Path("id") id: Int,
+        @Query("api_key") apiKey: String,
+        @Query("language") language: String = "es",
+        @Query("append_to_response") append: String = "combined_credits",
+    ): TmdbPersonDetails
+
+    @GET("company/{id}")
+    suspend fun companyDetails(
+        @Path("id") id: Int,
+        @Query("api_key") apiKey: String,
+        @Query("language") language: String = "es",
+    ): TmdbCompanyDetails
+
+    @GET("discover/movie")
+    suspend fun discoverMovie(
+        @Query("api_key") apiKey: String,
+        @Query("with_companies") withCompanies: Int,
+        @Query("sort_by") sortBy: String = "popularity.desc",
+        @Query("language") language: String = "es",
+    ): TmdbDiscoverResponse
+
+    @GET("discover/tv")
+    suspend fun discoverTv(
+        @Query("api_key") apiKey: String,
+        @Query("with_companies") withCompanies: Int,
+        @Query("sort_by") sortBy: String = "popularity.desc",
+        @Query("language") language: String = "es",
+    ): TmdbDiscoverResponse
 }

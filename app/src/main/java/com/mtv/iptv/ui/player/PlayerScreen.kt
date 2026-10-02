@@ -21,10 +21,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PictureInPictureAlt
@@ -66,6 +68,7 @@ import androidx.media3.ui.PlayerView
 import com.mtv.iptv.data.local.db.PlaybackEntity
 import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.util.formatMs
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -104,12 +107,36 @@ fun PlayerScreen(
     var showSpeed by remember { mutableStateOf(false) }
     var showAudio by remember { mutableStateOf(false) }
     var showSubs by remember { mutableStateOf(false) }
+    var showSleep by remember { mutableStateOf(false) }
+    var showStreamInfo by remember { mutableStateOf(false) }
+    var sleepMinutes by remember { mutableIntStateOf(0) }
+    var sleepJob by remember { mutableStateOf<Job?>(null) }
     var speed by remember { mutableFloatStateOf(1f) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
 
     fun showIndicator(icon: ImageVector, text: String) {
         indicator = Indicator(icon, text)
+    }
+
+    fun cancelSleep() {
+        sleepJob?.cancel()
+        sleepJob = null
+    }
+
+    fun startSleep(minutes: Int) {
+        cancelSleep()
+        sleepMinutes = minutes
+        if (minutes > 0) {
+            sleepJob = scope.launch {
+                delay(minutes * 60_000L)
+                player.pause()
+                showIndicator(Icons.Default.Bedtime, "Temporizador: pausado")
+            }
+            showIndicator(Icons.Default.Bedtime, "Temporizador: $minutes min")
+        } else {
+            showIndicator(Icons.Default.Bedtime, "Temporizador apagado")
+        }
     }
 
     LaunchedEffect(indicator) {
@@ -302,6 +329,12 @@ fun PlayerScreen(
                 IconButton(onClick = { cycleResize() }) {
                     Icon(Icons.Default.AspectRatio, contentDescription = "Ajuste de pantalla", tint = Color.White)
                 }
+                IconButton(onClick = { showStreamInfo = true }) {
+                    Icon(Icons.Default.Info, contentDescription = "Información del stream", tint = Color.White)
+                }
+                IconButton(onClick = { showSleep = true }) {
+                    Icon(Icons.Default.Bedtime, contentDescription = "Temporizador", tint = Color.White)
+                }
                 IconButton(onClick = { enterPip() }) {
                     Icon(Icons.Default.PictureInPictureAlt, contentDescription = "Ventana flotante", tint = Color.White)
                 }
@@ -380,5 +413,15 @@ fun PlayerScreen(
     }
     if (showSubs) {
         SubtitleTrackDialog(manager = manager, onDismiss = { showSubs = false })
+    }
+    if (showSleep) {
+        SleepTimerDialog(
+            selectedMinutes = sleepMinutes,
+            onSelect = { startSleep(it) },
+            onDismiss = { showSleep = false },
+        )
+    }
+    if (showStreamInfo) {
+        StreamInfoDialog(manager = manager, onDismiss = { showStreamInfo = false })
     }
 }

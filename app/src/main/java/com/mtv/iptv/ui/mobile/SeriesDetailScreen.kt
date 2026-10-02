@@ -56,6 +56,7 @@ import coil.compose.AsyncImage
 import com.mtv.iptv.PlayerActivity
 import com.mtv.iptv.data.local.db.FavoriteEntity
 import com.mtv.iptv.data.remote.tmdb.TitleCleaner
+import com.mtv.iptv.data.remote.tmdb.TmdbClient
 import com.mtv.iptv.data.remote.tmdb.TmdbMedia
 import com.mtv.iptv.data.remote.xtream.SeriesInfoResponse
 import com.mtv.iptv.di.LocalAppContainer
@@ -63,7 +64,12 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SeriesDetailScreen(seriesId: Int, onBack: () -> Unit) {
+fun SeriesDetailScreen(
+    seriesId: Int,
+    onBack: () -> Unit,
+    onActor: (Int) -> Unit,
+    onCompany: (Int) -> Unit,
+) {
     val context = LocalContext.current
     val container = LocalAppContainer.current
     val scope = rememberCoroutineScope()
@@ -232,7 +238,28 @@ fun SeriesDetailScreen(seriesId: Int, onBack: () -> Unit) {
                     Spacer(Modifier.height(16.dp))
                     Text("Reparto", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
                     Spacer(Modifier.height(8.dp))
-                    Box(Modifier.padding(horizontal = 16.dp)) { CastRow(cast) }
+                    Box(Modifier.padding(horizontal = 16.dp)) { CastRow(cast, onActorClick = onActor) }
+                }
+            }
+            val companies = tmdb?.companies.orEmpty()
+            if (companies.isNotEmpty()) {
+                item {
+                    Spacer(Modifier.height(16.dp))
+                    Text("Productoras", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
+                    Spacer(Modifier.height(8.dp))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(companies, key = { it.id }) { c ->
+                            CompanyChip(
+                                logoUrl = TmdbClient.posterUrl(c.logoPath),
+                                name = c.name,
+                                onClick = { if (c.id != 0) onCompany(c.id) },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
                 }
             }
             if (seasons.isNotEmpty()) {
