@@ -46,6 +46,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -1242,7 +1243,7 @@ fun TvSeriesDetail(
     val title = tmdb?.title ?: si?.info?.name.orEmpty()
     val backdrop = tmdb?.backdropUrl
     val overview = tmdb?.overview?.takeIf { it.isNotBlank() } ?: si?.info?.plot.orEmpty()
-    val year = tmdb?.year ?: TitleCleaner.yearFromDate(si?.info?.releasedate.orEmpty())
+    val year = tmdb?.year ?: TitleCleaner.yearFromDate(si?.info?.releaseDate.orEmpty())
     val rating = tmdb?.rating ?: 0.0
     val seasons = si?.episodes?.keys?.sortedBy { it.toIntOrNull() ?: 0 }.orEmpty()
     val seasonsLabel = if (seasons.isNotEmpty()) {

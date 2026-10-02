@@ -133,7 +133,8 @@ fun TvSearchScreen(
                 item {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         items(liveResults, key = { "live:${it.streamId}" }) { s ->
-                            TvMediaCard(
+                            TvPosterCard(
+                                rating = null,
                                 title = s.name,
                                 imageUrl = s.streamIcon.ifBlank { null },
                                 onClick = {
@@ -151,7 +152,8 @@ fun TvSearchScreen(
                 item {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         items(vodResults, key = { "vod:${it.streamId}" }) { v ->
-                            TvMediaCard(
+                            TvPosterCard(
+                                rating = null,
                                 title = v.name,
                                 imageUrl = v.streamIcon.ifBlank { null },
                                 onClick = {
@@ -167,7 +169,8 @@ fun TvSearchScreen(
                 item {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         items(seriesResults, key = { "series:${it.seriesId}" }) { s ->
-                            TvMediaCard(
+                            TvPosterCard(
+                                rating = null,
                                 title = s.name,
                                 imageUrl = s.cover.ifBlank { null },
                                 onClick = {
