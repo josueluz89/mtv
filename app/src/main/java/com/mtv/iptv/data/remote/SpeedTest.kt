@@ -1,22 +1,24 @@
 package com.mtv.iptv.data.remote
 
-import com.mtv.iptv.data.remote.xtream.XtreamRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 /**
- * Test de velocidad contra el servidor Xtream activo.
+ * Test de velocidad de la conexión a internet.
  *
- * Descarga hasta 10 MB (o 12 s) de un stream real del servidor (primera
- * película disponible, si no un canal en vivo) usando el OkHttpClient del
- * [HttpClientProvider], así que RESPETA el ajuste de DNS privado: la medición
- * se hace con el DNS que esté activo.
+ * Descarga cronometrada contra endpoints públicos confiables (CDN), con
+ * reintentos y fallback entre varios servidores: el test SIEMPRE se completa
+ * con un resultado real mientras haya internet, sin depender del servidor
+ * Xtream (que puede estar caído, lento o limitar la descarga) ni de haber
+ * iniciado sesión.
+ *
+ * Usa el OkHttpClient del [HttpClientProvider], así que RESPETA el ajuste de
+ * DNS privado: la medición se hace con el DNS que esté activo.
  */
 class SpeedTest(
     private val httpProvider: HttpClientProvider,
-    private val repo: XtreamRepository,
 ) {
 
     data class Result(
@@ -29,8 +31,19 @@ class SpeedTest(
     )
 
     companion object {
-        const val MAX_BYTES = 10L * 1024 * 1024
-        const val MAX_MS = 12_000L
+        const val MAX_BYTES = 25L * 1024 * 1024
+        const val MAX_MS = 15_000L
+        private const val ATTEMPTS_PER_ENDPOINT = 2
+
+        /** (url, bytes a pedir). Se prueban en orden hasta que uno responda. */
+        private val ENDPOINTS = listOf(
+            // Edge de Cloudflare (cercano) con tamaño a pedido.
+            "https://speed.cloudflare.com/__down?bytes=25000000" to 25_000_000L,
+            // CDN CacheFly, archivo fijo de 10 MB, muy estable.
+            "https://cachefly.cachefly.net/10mb.test" to 10_485_760L,
+            // OVH, archivo fijo de 10 MB.
+            "https://proof.ovh.net/files/10Mb.dat" to 10_485_760L,
+        )
 
         fun verdictFor(mbps: Double): String = when {
             mbps >= 25 -> "Suficiente para 4K"
@@ -40,34 +53,8 @@ class SpeedTest(
         }
     }
 
-    /**
-     * Elige un stream real del servidor para medir, SIN descargar el catálogo
-     * completo: usa la primera película de la primera categoría VOD (y si no
-     * hay, el primer canal en vivo de la primera categoría en vivo).
-     * Requiere sesión activa.
-     */
-    private suspend fun pickUrl(): String {
-        val vodCatId = repo.getVodCategories()
-            .firstOrNull { it.categoryId.isNotBlank() }
-            ?.categoryId
-        if (vodCatId != null) {
-            val vod = repo.getVodStreams(vodCatId).firstOrNull { it.streamId != 0 }
-            if (vod != null) return repo.vodUrl(vod.streamId, vod.containerExtension)
-        }
-        val liveCatId = repo.getLiveCategories()
-            .firstOrNull { it.categoryId.isNotBlank() }
-            ?.categoryId
-        if (liveCatId != null) {
-            val live = repo.getLiveStreams(liveCatId).firstOrNull { it.streamId != 0 }
-            if (live != null) return repo.liveUrl(live.streamId)
-        }
-        error("No hay contenido disponible para probar")
-    }
-
-    suspend fun run(): Result = withContext(Dispatchers.IO) {
-        val url = pickUrl()
-        val dnsLabel = httpProvider.dnsLabel()
-        // Cliente dedicado con timeouts propios, pero con el DNS del proveedor.
+    /** Una descarga cronometrada contra [url]. Devuelve Mbps o null si falló. */
+    private fun measureOnce(url: String): Double? {
         val client = httpProvider.client().newBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
@@ -76,26 +63,51 @@ class SpeedTest(
             .url(url)
             .header("User-Agent", "MTV/1.1 (speedtest)")
             .build()
-
-        var bytes = 0L
-        val start = android.os.SystemClock.elapsedRealtime()
-        client.newCall(request).execute().use { resp ->
-            if (!resp.isSuccessful) error("El servidor respondió ${resp.code}")
-            val body = resp.body ?: error("Respuesta sin contenido")
-            val buf = ByteArray(64 * 1024)
-            body.byteStream().use { input ->
-                while (true) {
-                    val n = input.read(buf)
-                    if (n <= 0) break
-                    bytes += n
-                    val elapsed = android.os.SystemClock.elapsedRealtime() - start
-                    if (bytes >= MAX_BYTES || elapsed >= MAX_MS) break
+        return try {
+            var bytes = 0L
+            val start = android.os.SystemClock.elapsedRealtime()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val body = resp.body ?: return null
+                val buf = ByteArray(64 * 1024)
+                body.byteStream().use { input ->
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        bytes += n
+                        val elapsed = android.os.SystemClock.elapsedRealtime() - start
+                        if (bytes >= MAX_BYTES || elapsed >= MAX_MS) break
+                    }
                 }
             }
+            val elapsedMs = (android.os.SystemClock.elapsedRealtime() - start).coerceAtLeast(1L)
+            if (bytes <= 0) return null
+            bytes * 8.0 / elapsedMs / 1000.0
+        } catch (_: Exception) {
+            null
         }
-        val elapsedMs = (android.os.SystemClock.elapsedRealtime() - start).coerceAtLeast(1L)
-        if (bytes <= 0) error("No se pudo descargar nada")
-        val mbps = bytes * 8.0 / elapsedMs / 1000.0
-        Result(mbps = mbps, dnsLabel = dnsLabel, verdict = verdictFor(mbps))
+    }
+
+    suspend fun run(): Result = withContext(Dispatchers.IO) {
+        val dnsLabel = httpProvider.dnsLabel()
+        var best: Double? = null
+        val failures = mutableListOf<String>()
+        for ((url, _) in ENDPOINTS) {
+            repeat(ATTEMPTS_PER_ENDPOINT) {
+                val mbps = measureOnce(url)
+                if (mbps != null && mbps > 0) {
+                    best = maxOf(best ?: 0.0, mbps)
+                    // Con un endpoint bueno basta; el mejor intento representa
+                    // la capacidad real de la línea.
+                    return@withContext Result(
+                        mbps = best!!,
+                        dnsLabel = dnsLabel,
+                        verdict = verdictFor(best!!),
+                    )
+                }
+            }
+            failures.add(url.substringAfter("https://").substringBefore("/"))
+        }
+        error("Sin conexión a internet (falló en: ${failures.joinToString(", ")})")
     }
 }

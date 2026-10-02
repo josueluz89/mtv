@@ -48,7 +48,7 @@ class AppContainer(appContext: Context) {
     val tmdbClient = TmdbClient(httpClientProvider)
     val tmdbRepository = TmdbRepository(tmdbClient)
 
-    val speedTest by lazy { SpeedTest(httpClientProvider, xtreamRepository) }
+    val speedTest by lazy { SpeedTest(httpClientProvider) }
 
     val serverRepository by lazy { ServerRepository(database.serverDao()) }
     val favoritesRepository by lazy { FavoritesRepository(database.favoriteDao()) }

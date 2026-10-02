@@ -54,8 +54,9 @@ const val SPEEDTEST_ROUTE = "speedtest"
  * Mbps + veredicto (4K ≥25 / HD ≥8 / SD ≥3 / baja), línea de DNS, e historial
  * de mediciones persistido en Room (tabla speed_tests, BD mtv.db v2).
  *
- * La medición descarga hasta 10 MB (o 12 s) de la primera película de la
- * primera categoría VOD del servidor Xtream activo — no el catálogo entero.
+ * La medición es una descarga cronometrada contra servidores de prueba
+ * (CDN confiables, con reintentos y fallback): no depende del servidor Xtream
+ * ni requiere sesión.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,10 +73,6 @@ fun SpeedTestScreen(onBack: () -> Unit) {
     fun showMessage(msg: String) = scope.launch { snackbarHostState.showSnackbar(msg) }
 
     fun runTest() = scope.launch {
-        if (container.xtreamRepository.session == null) {
-            showMessage("Iniciá sesión primero")
-            return@launch
-        }
         running = true
         try {
             val result = container.speedTest.run()
@@ -149,7 +146,7 @@ fun SpeedTestScreen(onBack: () -> Unit) {
                         }
                         lastResult != null -> SpeedResultContent(lastResult!!)
                         else -> Text(
-                            "Medí tu conexión contra el servidor Xtream activo.",
+                            "Medí tu velocidad de internet con servidores de prueba.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

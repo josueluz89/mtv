@@ -41,7 +41,7 @@ fun NetworkScreen(onBack: () -> Unit, onSpeedTest: () -> Unit) {
     val lastSpeedAt by prefs.lastSpeedAt.collectAsState(initial = 0L)
 
     fun lastSpeedSubtitle(): String {
-        if (lastSpeedMbps < 0) return "Medí tu conexión contra el servidor"
+        if (lastSpeedMbps < 0) return "Medí tu velocidad de internet"
         return "Última: %.1f Mbps · %s · %s".format(
             lastSpeedMbps, SpeedTest.verdictFor(lastSpeedMbps.toDouble()), timeAgo(lastSpeedAt)
         )

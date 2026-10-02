@@ -273,10 +273,10 @@ class UserPrefs(private val context: Context) {
     private val privateDnsKey = booleanPreferencesKey("private_dns")
 
     /**
-     * DNS privado (DNS-over-HTTPS contra Cloudflare 1.1.1.1). Apagado por defecto.
+     * DNS privado (DNS-over-HTTPS contra Cloudflare 1.1.1.1). PRENDIDO por defecto.
      * Se aplica al OkHttpClient de Xtream, TMDB y el test de velocidad.
      */
-    val privateDns: Flow<Boolean> = context.dataStore.data.map { it[privateDnsKey] ?: false }
+    val privateDns: Flow<Boolean> = context.dataStore.data.map { it[privateDnsKey] ?: true }
 
     suspend fun setPrivateDns(value: Boolean) {
         context.dataStore.edit { it[privateDnsKey] = value }
