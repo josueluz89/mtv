@@ -1,8 +1,10 @@
 package com.mtv.iptv.data.remote.xtream
 
 import kotlinx.serialization.json.JsonElement
+import okhttp3.ResponseBody
 import retrofit2.http.GET
 import retrofit2.http.Query
+import retrofit2.http.Streaming
 
 /**
  * Xtream Codes Player API.
@@ -27,4 +29,21 @@ interface XtreamApi {
         @Query("vod_id") vodId: Int? = null,
         @Query("series_id") seriesId: Int? = null,
     ): JsonElement
+
+    /**
+     * Variante en streaming para las listas grandes (canales, películas, series).
+     * Devuelve el cuerpo crudo para decodificarlo directo del socket sin cargar
+     * toda la respuesta en memoria (un get_live_streams puede traer decenas de
+     * miles de items y reventar el heap si se bufferiza completo).
+     */
+    @Streaming
+    @GET("player_api.php")
+    suspend fun actionStream(
+        @Query("username") username: String,
+        @Query("password") password: String,
+        @Query("action") action: String,
+        @Query("category_id") categoryId: String? = null,
+        @Query("vod_id") vodId: Int? = null,
+        @Query("series_id") seriesId: Int? = null,
+    ): ResponseBody
 }

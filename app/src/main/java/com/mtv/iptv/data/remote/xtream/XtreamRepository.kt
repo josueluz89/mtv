@@ -4,8 +4,9 @@ import com.mtv.iptv.data.local.db.ServerEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -175,33 +176,21 @@ class XtreamRepository(private val client: XtreamClient) {
 
     suspend fun getLiveCategories(): List<XtreamCategory> = withContext(Dispatchers.IO) {
         if (liveCategoriesCache.isEmpty()) {
-            val s = requireSession()
-            liveCategoriesCache += decodeList(
-                s.api.action(s.username, s.password, "get_live_categories"),
-                XtreamCategory.serializer(),
-            )
+            liveCategoriesCache += fetchList("get_live_categories", XtreamCategory.serializer())
         }
         liveCategoriesCache.toList()
     }
 
     suspend fun getVodCategories(): List<XtreamCategory> = withContext(Dispatchers.IO) {
         if (vodCategoriesCache.isEmpty()) {
-            val s = requireSession()
-            vodCategoriesCache += decodeList(
-                s.api.action(s.username, s.password, "get_vod_categories"),
-                XtreamCategory.serializer(),
-            )
+            vodCategoriesCache += fetchList("get_vod_categories", XtreamCategory.serializer())
         }
         vodCategoriesCache.toList()
     }
 
     suspend fun getSeriesCategories(): List<XtreamCategory> = withContext(Dispatchers.IO) {
         if (seriesCategoriesCache.isEmpty()) {
-            val s = requireSession()
-            seriesCategoriesCache += decodeList(
-                s.api.action(s.username, s.password, "get_series_categories"),
-                XtreamCategory.serializer(),
-            )
+            seriesCategoriesCache += fetchList("get_series_categories", XtreamCategory.serializer())
         }
         seriesCategoriesCache.toList()
     }
@@ -209,31 +198,25 @@ class XtreamRepository(private val client: XtreamClient) {
     // ---------------- Contenido ----------------
 
     suspend fun getLiveStreams(categoryId: String? = null): List<XtreamLiveStream> =
-        withContext(Dispatchers.IO) {
-            val s = requireSession()
-            decodeList(
-                s.api.action(s.username, s.password, "get_live_streams", categoryId = categoryId?.takeIf { it.isNotBlank() }),
-                XtreamLiveStream.serializer(),
-            )
-        }
+        fetchList(
+            "get_live_streams",
+            XtreamLiveStream.serializer(),
+            categoryId = categoryId?.takeIf { it.isNotBlank() },
+        )
 
     suspend fun getVodStreams(categoryId: String? = null): List<XtreamVodStream> =
-        withContext(Dispatchers.IO) {
-            val s = requireSession()
-            decodeList(
-                s.api.action(s.username, s.password, "get_vod_streams", categoryId = categoryId?.takeIf { it.isNotBlank() }),
-                XtreamVodStream.serializer(),
-            )
-        }
+        fetchList(
+            "get_vod_streams",
+            XtreamVodStream.serializer(),
+            categoryId = categoryId?.takeIf { it.isNotBlank() },
+        )
 
     suspend fun getSeries(categoryId: String? = null): List<XtreamSeries> =
-        withContext(Dispatchers.IO) {
-            val s = requireSession()
-            decodeList(
-                s.api.action(s.username, s.password, "get_series", categoryId = categoryId?.takeIf { it.isNotBlank() }),
-                XtreamSeries.serializer(),
-            )
-        }
+        fetchList(
+            "get_series",
+            XtreamSeries.serializer(),
+            categoryId = categoryId?.takeIf { it.isNotBlank() },
+        )
 
     suspend fun getVodInfo(vodId: Int): VodInfoResponse = withContext(Dispatchers.IO) {
         val s = requireSession()
@@ -277,20 +260,39 @@ class XtreamRepository(private val client: XtreamClient) {
 
     // ---------------- Util ----------------
 
-    private fun <T> decodeList(
-        element: JsonElement,
+    /**
+     * Descarga una lista Xtream decodificándola directo del socket, sin
+     * bufferizar la respuesta completa en memoria.
+     *
+     * El conversor estándar de Retrofit primero convierte TODO el cuerpo a
+     * JsonElement: con listas de decenas de miles de items (típico en estos
+     * paneles) eso revienta el heap con OutOfMemoryError y la app se cierra
+     * al cargar la lista. Aquí solo vive en memoria la lista final de DTOs.
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    private suspend fun <T> fetchList(
+        action: String,
         serializer: KSerializer<T>,
-    ): List<T> {
-        if (element !is JsonArray) return emptyList()
-        // Un item malformado no debe reventar la lista completa: se salta.
-        return element.mapNotNull { item ->
-            try {
-                client.json.decodeFromJsonElement(serializer, item)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                null
+        categoryId: String? = null,
+        vodId: Int? = null,
+        seriesId: Int? = null,
+    ): List<T> = withContext(Dispatchers.IO) {
+        val s = requireSession()
+        try {
+            s.api.actionStream(
+                s.username, s.password, action,
+                categoryId = categoryId,
+                vodId = vodId,
+                seriesId = seriesId,
+            ).use { body ->
+                body.byteStream().use { stream ->
+                    client.json.decodeFromStream(ListSerializer(serializer), stream)
+                }
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 }
