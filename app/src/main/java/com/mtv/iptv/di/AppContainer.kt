@@ -12,6 +12,7 @@ import com.mtv.iptv.data.repository.FavoritesRepository
 import com.mtv.iptv.data.repository.PlaybackRepository
 import com.mtv.iptv.data.repository.ServerRepository
 import com.mtv.iptv.player.PlayerManager
+import com.mtv.iptv.util.CrashReporter
 
 /** DI manual: un solo contenedor por aplicación, sin Hilt. */
 class AppContainer(appContext: Context) {
@@ -20,7 +21,9 @@ class AppContainer(appContext: Context) {
     val userPrefs: UserPrefs by lazy { UserPrefs(appContext) }
 
     val xtreamClient = XtreamClient()
-    val xtreamRepository = XtreamRepository(xtreamClient)
+    val xtreamRepository = XtreamRepository(xtreamClient).also {
+        it.eventLog = { msg -> CrashReporter.log(appContext, "xtream", msg) }
+    }
 
     val tmdbClient = TmdbClient()
     val tmdbRepository = TmdbRepository(tmdbClient)

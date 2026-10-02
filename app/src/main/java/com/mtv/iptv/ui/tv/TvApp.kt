@@ -122,6 +122,11 @@ fun TvServersScreen(onConnected: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    LaunchedEffect(Unit) {
+        username = container.userPrefs.getUsername()
+        password = container.userPrefs.getPassword()
+    }
+
     fun connect() {
         val user = username.trim()
         if (user.isBlank() || password.isBlank()) {
@@ -144,6 +149,7 @@ fun TvServersScreen(onConnected: () -> Unit) {
                     container.serverRepository.upsert(updated)
                     container.xtreamRepository.updateSessionServer(updated)
                     container.userPrefs.setLastServerId(row.id)
+                    container.userPrefs.setCredentials(user, password)
                     loading = false
                     onConnected()
                 }

@@ -40,6 +40,9 @@ class XtreamRepository(private val client: XtreamClient) {
     var session: XtreamSession? = null
         private set
 
+    /** Hook de diagnóstico (AppContainer lo conecta con CrashReporter). */
+    var eventLog: ((String) -> Unit)? = null
+
     private val liveCategoriesCache = mutableListOf<XtreamCategory>()
     private val vodCategoriesCache = mutableListOf<XtreamCategory>()
     private val seriesCategoriesCache = mutableListOf<XtreamCategory>()
@@ -286,13 +289,17 @@ class XtreamRepository(private val client: XtreamClient) {
                 vodId = vodId,
                 seriesId = seriesId,
             ).use { body ->
+                eventLog?.invoke("$action: contentLength=${body.contentLength()}")
                 body.byteStream().use { stream ->
-                    client.json.decodeFromStream(ListSerializer(serializer), stream)
+                    val list = client.json.decodeFromStream(ListSerializer(serializer), stream)
+                    eventLog?.invoke("$action: OK ${list.size} items")
+                    list
                 }
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            eventLog?.invoke("$action: ERROR ${e::class.java.simpleName}: ${e.message}")
             emptyList()
         }
     }

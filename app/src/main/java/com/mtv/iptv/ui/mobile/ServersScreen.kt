@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -15,6 +18,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -25,10 +29,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.mtv.iptv.data.remote.xtream.LoginResult
 import com.mtv.iptv.di.LocalAppContainer
+import com.mtv.iptv.util.CrashReporter
 import kotlinx.coroutines.launch
 
 /**
@@ -41,13 +49,22 @@ import kotlinx.coroutines.launch
 fun ServersScreen(onConnected: () -> Unit) {
     val container = LocalAppContainer.current
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
 
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var crashReport by remember { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    LaunchedEffect(Unit) {
+        username = container.userPrefs.getUsername()
+        password = container.userPrefs.getPassword()
+        val report = CrashReporter.read(context)
+        if (report.contains("===== CRASH")) crashReport = report.takeLast(6000)
+    }
     LaunchedEffect(errorMessage) {
         errorMessage?.let {
             snackbarHostState.showSnackbar(it)
@@ -76,6 +93,7 @@ fun ServersScreen(onConnected: () -> Unit) {
                     container.serverRepository.upsert(updated)
                     container.xtreamRepository.updateSessionServer(updated)
                     container.userPrefs.setLastServerId(row.id)
+                    container.userPrefs.setCredentials(user, password)
                     loading = false
                     onConnected()
                 }
@@ -129,5 +147,34 @@ fun ServersScreen(onConnected: () -> Unit) {
                 ) { Text("Conectar") }
             }
         }
+    }
+
+    // Diagnóstico: si la app se cerró por un error, mostrarlo para copiarlo.
+    crashReport?.let { report ->
+        AlertDialog(
+            onDismissRequest = { crashReport = null },
+            title = { Text("Se detectó un cierre") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text("La última vez la app se cerró por este error. Copialo y pasalo por el chat:")
+                    Spacer(Modifier.height(8.dp))
+                    Text(report)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    clipboard.setText(AnnotatedString(report))
+                    errorMessage = "Reporte copiado."
+                }) { Text("Copiar") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        CrashReporter.clear(context)
+                        crashReport = null
+                    }
+                }) { Text("Borrar") }
+            },
+        )
     }
 }

@@ -32,6 +32,7 @@ import com.mtv.iptv.data.remote.xtream.XtreamLiveStream
 import com.mtv.iptv.data.remote.xtream.XtreamSeries
 import com.mtv.iptv.data.remote.xtream.XtreamVodStream
 import com.mtv.iptv.di.LocalAppContainer
+import com.mtv.iptv.util.CrashReporter
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,22 +61,31 @@ fun HomeScreen(
             onLogout()
             return@LaunchedEffect
         }
+        CrashReporter.log(context, "home", "inicio carga")
         try {
             continueWatching = container.playbackRepository.recent(15)
                 .filter { it.url.isNotBlank() }
             val liveCats = repo.getLiveCategories()
+            CrashReporter.log(context, "home", "liveCats=${liveCats.size}")
             if (liveCats.isNotEmpty()) {
                 liveItems = repo.getLiveStreams(liveCats.first().categoryId).take(25)
+                CrashReporter.log(context, "home", "liveItems=${liveItems.size}")
             }
             val vodCats = repo.getVodCategories()
+            CrashReporter.log(context, "home", "vodCats=${vodCats.size}")
             if (vodCats.isNotEmpty()) {
                 vodItems = repo.getVodStreams(vodCats.first().categoryId).take(25)
+                CrashReporter.log(context, "home", "vodItems=${vodItems.size}")
             }
             val seriesCats = repo.getSeriesCategories()
+            CrashReporter.log(context, "home", "seriesCats=${seriesCats.size}")
             if (seriesCats.isNotEmpty()) {
                 seriesItems = repo.getSeries(seriesCats.first().categoryId).take(25)
+                CrashReporter.log(context, "home", "seriesItems=${seriesItems.size}")
             }
+            CrashReporter.log(context, "home", "carga completa OK")
         } catch (e: Exception) {
+            CrashReporter.log(context, "home", "ERROR ${e::class.java.simpleName}: ${e.message}")
             error = "No se pudo cargar el contenido."
         }
         loading = false
