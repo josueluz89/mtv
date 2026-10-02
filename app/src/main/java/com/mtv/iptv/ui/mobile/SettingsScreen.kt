@@ -162,7 +162,7 @@ fun SettingsContent(onServers: () -> Unit, onLogout: () -> Unit) {
                         downloadManager.setRequirements(
                             Requirements(
                                 if (enabled) Requirements.NETWORK_UNMETERED
-                                else Requirements.NETWORK_CONNECTED
+                                else Requirements.NETWORK
                             )
                         )
                     }

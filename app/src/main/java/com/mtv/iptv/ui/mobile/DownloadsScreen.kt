@@ -58,7 +58,7 @@ import com.mtv.iptv.player.downloads.EstadoDescarga
 import kotlinx.coroutines.launch
 
 /** "123456789" -> "117 MB" / "1.2 GB". */
-fun formatBytes(bytes: Long): String {
+private fun formatBytes(bytes: Long): String {
     if (bytes <= 0) return "0 MB"
     val gb = bytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
     return if (gb >= 1.0) "%.1f GB".format(gb) else "%d MB".format(bytes / (1024 * 1024))
