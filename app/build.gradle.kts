@@ -6,6 +6,19 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// TMDB API key del dueño: NUNCA en texto plano en el repo.
+// Se lee de local.properties (tmdbApiKey, ignorado por git) o de la variable
+// de entorno TMDB_API_KEY (GitHub Secret en CI). Vacío = sin TMDB, sin crash.
+val localProps = java.util.Properties()
+val localPropsFile = rootProject.file("local.properties")
+if (localPropsFile.exists()) {
+    localPropsFile.inputStream().use { localProps.load(it) }
+}
+val tmdbApiKey: String =
+    localProps.getProperty("tmdbApiKey")?.takeIf { it.isNotBlank() }
+        ?: System.getenv("TMDB_API_KEY")?.takeIf { it.isNotBlank() }
+        ?: ""
+
 android {
     namespace = "com.mtv.iptv"
     compileSdk = 35
@@ -14,11 +27,11 @@ android {
         applicationId = "com.mtv.iptv"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.1.0"
+        versionCode = 8
+        versionName = "1.1.1"
 
-        // TMDB API key del dueño, compilada como BuildConfig (no va en texto plano en el código fuente).
-        buildConfigField("String", "TMDB_API_KEY", "\"01926d2187b6a5d861eefc750e9df3e3\"")
+        // Key inyectada como BuildConfig; vacía si no está configurada (la app lo tolera).
+        buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
     }
 
     buildTypes {
