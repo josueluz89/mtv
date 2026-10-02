@@ -2,6 +2,8 @@ package com.mtv.iptv.di
 
 import android.content.Context
 import androidx.compose.runtime.staticCompositionLocalOf
+import coil.ImageLoader
+import coil.memory.MemoryCache
 import com.mtv.iptv.data.local.db.MtvDatabase
 import com.mtv.iptv.data.local.prefs.SecurePrefs
 import com.mtv.iptv.data.local.prefs.UserPrefs
@@ -14,9 +16,14 @@ import com.mtv.iptv.data.remote.xtream.XtreamRepository
 import com.mtv.iptv.data.repository.FavoritesRepository
 import com.mtv.iptv.data.repository.PlaybackRepository
 import com.mtv.iptv.data.repository.ServerRepository
+import com.mtv.iptv.data.repository.SpeedTestHistoryRepository
 import com.mtv.iptv.player.PlayerManager
 import com.mtv.iptv.player.downloads.DownloadModule
 import com.mtv.iptv.util.CrashReporter
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** DI manual: un solo contenedor por aplicación, sin Hilt. */
 class AppContainer(appContext: Context) {
@@ -42,10 +49,74 @@ class AppContainer(appContext: Context) {
     val favoritesRepository by lazy { FavoritesRepository(database.favoriteDao()) }
     val playbackRepository by lazy { PlaybackRepository(database.playbackDao()) }
 
-    val downloadModule = DownloadModule(appContext)
+    val speedTestHistoryRepository by lazy {
+        SpeedTestHistoryRepository(database.speedTestDao())
+    }
 
-    val playerManager by lazy {
+    /**
+     * Perezoso: antes se instanciaba al crear el AppContainer (arranque de la
+     * app), levantando el DownloadManager de Media3, su pool de hilos y el
+     * caché en disco aunque el usuario nunca descargue nada. Ahora solo se
+     * crea al primer uso (descargas o primera reproducción, que necesita el
+     * cacheDataSourceFactory compartido). La firma pública no cambia.
+     */
+    private val _downloadModule = lazy { DownloadModule(appContext) }
+    val downloadModule: DownloadModule by _downloadModule
+
+    /**
+     * Delegado privado para poder preguntar si el player ya se creó sin
+     * forzarlo (el observador de background no debe inicializarlo).
+     */
+    private val _playerManager = lazy {
         PlayerManager(appContext, playbackRepository, downloadModule.cacheDataSourceFactory)
+    }
+    val playerManager: PlayerManager by _playerManager
+
+    /**
+     * ImageLoader de Coil (singleton de la app) con caché de memoria
+     * ACOTADO: ~10% del heap, con piso de 16 MB y tope de 64 MB, para que
+     * los pósters no se coman la RAM en dispositivos chicos (el default de
+     * Coil es ~25% del heap). Reutiliza el OkHttpClient compartido, así el
+     * toggle de DNS privado también aplica a las imágenes.
+     *
+     * La UI debe cargar imágenes con [com.mtv.iptv.ui.components.MtvAsyncImage],
+     * que además limita el tamaño decodificado con size().
+     */
+    val imageLoader: ImageLoader by lazy {
+        val heap = Runtime.getRuntime().maxMemory()
+        val memoryBytes = (heap * 0.10).toLong().coerceIn(
+            16L * 1024 * 1024,
+            64L * 1024 * 1024,
+        )
+        ImageLoader.Builder(appContext)
+            .memoryCache {
+                MemoryCache.Builder(appContext)
+                    .maxSizeBytes(memoryBytes.toInt())
+                    .build()
+            }
+            .okHttpClient { httpClientProvider.client() }
+            .build()
+    }
+
+    /**
+     * La app pasó a background (ver MtvApplication): guarda la posición de
+     * reproducción y libera los decoders/codecs del player con stop()
+     * (ExoPlayer.stop() suelta los recursos de los renderers). No llama a
+     * release() porque el PlayerManager es un singleton que la UI reutiliza
+     * al volver; un release total lo dejaría inservible.
+     */
+    fun onAppBackgrounded(scope: CoroutineScope) {
+        if (!_playerManager.isInitialized()) return
+        val pm = _playerManager.value
+        scope.launch {
+            try {
+                pm.savePosition()
+            } catch (_: Exception) {
+                // Sin posición que guardar (p. ej. nunca se reprodujo nada).
+            }
+            // stop() toca el player: va en el hilo principal (ver PlayerManager).
+            withContext(Dispatchers.Main) { pm.stop() }
+        }
     }
 }
 

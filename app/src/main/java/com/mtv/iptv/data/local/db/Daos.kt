@@ -2,6 +2,7 @@ package com.mtv.iptv.data.local.db
 
 import androidx.room.Dao
 import androidx.room.Delete
+import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
@@ -58,4 +59,19 @@ interface PlaybackDao {
 
     @Query("DELETE FROM playback WHERE mediaKey = :mediaKey")
     suspend fun deleteByKey(mediaKey: String)
+}
+
+@Dao
+interface SpeedTestDao {
+    @Insert
+    suspend fun insert(record: SpeedTestRecord)
+
+    @Query("SELECT * FROM speed_tests ORDER BY measuredAt DESC LIMIT :limit")
+    suspend fun recent(limit: Int): List<SpeedTestRecord>
+
+    @Query("SELECT * FROM speed_tests ORDER BY measuredAt DESC")
+    fun observeAll(): Flow<List<SpeedTestRecord>>
+
+    @Query("DELETE FROM speed_tests")
+    suspend fun clear()
 }

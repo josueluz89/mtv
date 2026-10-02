@@ -35,6 +35,30 @@ class TmdbRepository(private val client: TmdbClient) {
     private val movieCache = mutableMapOf<String, TmdbMedia?>()
     private val seriesCache = mutableMapOf<String, TmdbMedia?>()
 
+    private var trendingCache: List<TmdbSearchResult>? = null
+    private var trendingCacheAt: Long = 0
+
+    /**
+     * Tendencias de la semana (películas + series con backdrop).
+     * Cache en memoria de 6 h para no golpear TMDB en cada visita al inicio.
+     */
+    suspend fun trendingWeek(): List<TmdbSearchResult> = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val cached = trendingCache
+        if (cached != null && now - trendingCacheAt < 6 * 60 * 60 * 1000L) return@withContext cached
+        val fresh = try {
+            client.api.trendingWeek(client.apiKey).results
+                .filter { it.mediaType == "movie" || it.mediaType == "tv" }
+                .filter { !it.backdropPath.isNullOrBlank() }
+                .take(10)
+        } catch (e: Exception) {
+            cached ?: emptyList()
+        }
+        trendingCache = fresh
+        trendingCacheAt = now
+        fresh
+    }
+
     suspend fun findMovie(rawTitle: String, yearHint: Int? = null): TmdbMedia? =
         withContext(Dispatchers.IO) {
             val cleaned = TitleCleaner.clean(rawTitle)

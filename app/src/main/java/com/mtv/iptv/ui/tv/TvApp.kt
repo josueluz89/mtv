@@ -59,6 +59,7 @@ import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.player.downloads.DownloadEntry
 import com.mtv.iptv.ui.mobile.LoginFlowState
 import com.mtv.iptv.ui.mobile.SettingsContent
+import com.mtv.iptv.ui.speedtest.SpeedTestScreen
 import com.mtv.iptv.player.downloads.EstadoDescarga
 import kotlinx.coroutines.launch
 
@@ -84,12 +85,23 @@ fun TvApp() {
                     onSeries = { navController.navigate("tv_series/$it") },
                     onDownloads = { navController.navigate("tv_downloads") },
                     onSettings = { navController.navigate("tv_settings") },
+                    onSearch = { navController.navigate("tv_search") },
                     onLogout = {
                         navController.navigate("tv_servers") {
                             popUpTo("tv_browse") { inclusive = true }
                         }
                     },
                 )
+            }
+            composable("tv_search") {
+                TvSearchScreen(
+                    onBack = { navController.popBackStack() },
+                    onVod = { navController.navigate("tv_vod/$it") },
+                    onSeries = { navController.navigate("tv_series/$it") },
+                )
+            }
+            composable("tv_speedtest") {
+                SpeedTestScreen(onBack = { navController.popBackStack() })
             }
             composable("tv_downloads") {
                 TvDownloadsScreen(onBack = { navController.popBackStack() })
@@ -114,6 +126,7 @@ fun TvApp() {
                         }
                     },
                     onAddUser = { navController.navigate("tv_add_user") },
+                    onSpeedTest = { navController.navigate("tv_speedtest") },
                 )
             }
             composable("tv_add_user") {
@@ -370,9 +383,9 @@ fun TvServersScreen(
 // ---------------- Configuración (TV) ----------------
 
 /**
- * Configuración en TV: reusa el contenido de [SettingsContent] (móvil) con un
- * encabezado TV y botón Atrás. Los cuadros de diálogo de Material3 funcionan
- * con D-pad.
+ * Configuración en TV: reusa el contenido jerárquico de [SettingsContent] con
+ * un encabezado TV y botón Atrás. Las pantallas secundarias y sus diálogos
+ * funcionan con D-pad.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -382,6 +395,7 @@ fun TvSettingsScreen(
     onLogout: () -> Unit,
     onHome: () -> Unit,
     onAddUser: () -> Unit,
+    onSpeedTest: () -> Unit,
 ) {
     MaterialTheme {
         Column(
@@ -395,7 +409,13 @@ fun TvSettingsScreen(
                 Text("Configuración", style = MaterialTheme.typography.headlineSmall)
             }
             Spacer(Modifier.height(16.dp))
-            SettingsContent(onServers = onServers, onLogout = onLogout, onHome = onHome, onAddUser = onAddUser)
+            SettingsContent(
+                onServers = onServers,
+                onLogout = onLogout,
+                onHome = onHome,
+                onAddUser = onAddUser,
+                onSpeedTest = onSpeedTest,
+            )
         }
     }
 }
@@ -408,6 +428,7 @@ fun TvBrowseScreen(
     onSection: (String) -> Unit,
     onVod: (Int) -> Unit,
     onSeries: (Int) -> Unit,
+    onSearch: () -> Unit,
     onDownloads: () -> Unit,
     onSettings: () -> Unit,
     onLogout: () -> Unit,
@@ -448,6 +469,8 @@ fun TvBrowseScreen(
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("MTV", style = MaterialTheme.typography.displaySmall, modifier = Modifier.weight(1f))
+                Button(onClick = onSearch) { Text("Buscar") }
+                Spacer(Modifier.width(12.dp))
                 Button(onClick = onDownloads) { Text("Descargas") }
                 Spacer(Modifier.width(12.dp))
                 Button(onClick = onSettings) { Text("Configuración") }

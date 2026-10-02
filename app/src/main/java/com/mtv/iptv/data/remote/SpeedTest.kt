@@ -40,13 +40,27 @@ class SpeedTest(
         }
     }
 
-    /** Elige un stream real del servidor para medir. Requiere sesión activa. */
+    /**
+     * Elige un stream real del servidor para medir, SIN descargar el catálogo
+     * completo: usa la primera película de la primera categoría VOD (y si no
+     * hay, el primer canal en vivo de la primera categoría en vivo).
+     * Requiere sesión activa.
+     */
     private suspend fun pickUrl(): String {
-        val vods = repo.getVodStreams()
-        val vod = vods.firstOrNull { it.streamId != 0 }
-        if (vod != null) return repo.vodUrl(vod.streamId, vod.containerExtension)
-        val live = repo.getLiveStreams().firstOrNull { it.streamId != 0 }
-        if (live != null) return repo.liveUrl(live.streamId)
+        val vodCatId = repo.getVodCategories()
+            .firstOrNull { it.categoryId.isNotBlank() }
+            ?.categoryId
+        if (vodCatId != null) {
+            val vod = repo.getVodStreams(vodCatId).firstOrNull { it.streamId != 0 }
+            if (vod != null) return repo.vodUrl(vod.streamId, vod.containerExtension)
+        }
+        val liveCatId = repo.getLiveCategories()
+            .firstOrNull { it.categoryId.isNotBlank() }
+            ?.categoryId
+        if (liveCatId != null) {
+            val live = repo.getLiveStreams(liveCatId).firstOrNull { it.streamId != 0 }
+            if (live != null) return repo.liveUrl(live.streamId)
+        }
         error("No hay contenido disponible para probar")
     }
 

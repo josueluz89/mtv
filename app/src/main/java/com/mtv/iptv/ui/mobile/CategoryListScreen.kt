@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -42,8 +43,10 @@ import com.mtv.iptv.data.remote.xtream.XtreamLiveStream
 import com.mtv.iptv.data.remote.xtream.XtreamSeries
 import com.mtv.iptv.data.remote.xtream.XtreamVodStream
 import com.mtv.iptv.di.LocalAppContainer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Año (UTC del sistema) extraído del timestamp unix de "added". */
 private fun yearFromAdded(added: String): Long = try {
@@ -155,11 +158,27 @@ fun CategoryListScreen(
     }
 
     val q = query.trim().lowercase()
-    val filteredLive = if (q.isBlank()) liveList else liveList.filter { it.name.lowercase().contains(q) }
-    val filteredVod = if (q.isBlank()) vodList else vodList.filter { it.name.lowercase().contains(q) }
-    val filteredSeries = if (q.isBlank()) seriesList else seriesList.filter { it.name.lowercase().contains(q) }
-    val sortedVod = sortCatalog(filteredVod, sortKey, { it.name }, { it.added }, { it.rating })
-    val sortedSeries = sortCatalog(filteredSeries, sortKey, { it.name }, { it.added }, { it.rating })
+    // Filtro + orden FUERA del hilo UI: con catálogos de decenas de miles de
+    // items, hacerlo en el cuerpo del composable congelaba la UI en cada
+    // recomposición (cada tecla del buscador). Se recalcula solo cuando
+    // cambian la lista, la query o el criterio de orden.
+    val sortedLive by produceState(initialValue = emptyList<XtreamLiveStream>(), liveList, q) {
+        value = withContext(Dispatchers.Default) {
+            if (q.isBlank()) liveList else liveList.filter { it.name.lowercase().contains(q) }
+        }
+    }
+    val sortedVod by produceState(initialValue = emptyList<XtreamVodStream>(), vodList, q, sortKey) {
+        value = withContext(Dispatchers.Default) {
+            val f = if (q.isBlank()) vodList else vodList.filter { it.name.lowercase().contains(q) }
+            sortCatalog(f, sortKey, { it.name }, { it.added }, { it.rating })
+        }
+    }
+    val sortedSeries by produceState(initialValue = emptyList<XtreamSeries>(), seriesList, q, sortKey) {
+        value = withContext(Dispatchers.Default) {
+            val f = if (q.isBlank()) seriesList else seriesList.filter { it.name.lowercase().contains(q) }
+            sortCatalog(f, sortKey, { it.name }, { it.added }, { it.rating })
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -241,7 +260,7 @@ fun CategoryListScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.weight(1f),
                 ) {
-                    items(filteredLive, key = { "${it.streamId}:${it.name}" }) { s ->
+                    items(sortedLive, key = { "${it.streamId}:${it.name}" }) { s ->
                         ChannelCard(
                             iconUrl = s.streamIcon.ifBlank { null },
                             name = s.name,

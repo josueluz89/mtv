@@ -6,14 +6,20 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [ServerEntity::class, FavoriteEntity::class, PlaybackEntity::class],
-    version = 1,
+    entities = [
+        ServerEntity::class,
+        FavoriteEntity::class,
+        PlaybackEntity::class,
+        SpeedTestRecord::class,
+    ],
+    version = 2,
     exportSchema = false,
 )
 abstract class MtvDatabase : RoomDatabase() {
     abstract fun serverDao(): ServerDao
     abstract fun favoriteDao(): FavoriteDao
     abstract fun playbackDao(): PlaybackDao
+    abstract fun speedTestDao(): SpeedTestDao
 
     companion object {
         fun create(context: Context): MtvDatabase =

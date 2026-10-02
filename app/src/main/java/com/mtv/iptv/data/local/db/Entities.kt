@@ -25,6 +25,20 @@ data class FavoriteEntity(
     val imageUrl: String = "",
 )
 
+/** Medición del test de velocidad (historial, para la pantalla ui/speedtest). */
+@Entity(tableName = "speed_tests")
+data class SpeedTestRecord(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** Megabits por segundo medidos. */
+    val mbps: Double = 0.0,
+    /** "Cloudflare 1.1.1.1" o "sistema": DNS usado en la medición. */
+    val dnsLabel: String = "",
+    /** Veredicto en español (SD / HD / 4K / baja). */
+    val verdict: String = "",
+    /** System.currentTimeMillis() de la medición. */
+    val measuredAt: Long = 0L,
+)
+
 /** Posición de reproducción para "Seguir viendo". */
 @Entity(tableName = "playback")
 data class PlaybackEntity(

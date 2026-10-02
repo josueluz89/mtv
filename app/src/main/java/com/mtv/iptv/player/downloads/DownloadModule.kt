@@ -94,6 +94,9 @@ class DownloadModule(appContext: Context) {
 
     val tracker = DownloadTracker(downloadManager)
 
+    /** Tope del caché de descargas (para la barra de espacio usado). */
+    val maxCacheBytes: Long get() = MAX_CACHE_BYTES
+
     /** Bytes ocupados actualmente en el caché de descargas. */
     fun usedSpaceBytes(): Long = try {
         cache.cacheSpace

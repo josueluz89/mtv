@@ -1,4 +1,4 @@
-package com.mtv.iptv.ui.mobile
+package com.mtv.iptv.ui.downloads
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,7 +31,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -55,19 +58,29 @@ import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.player.downloads.DownloadEntry
 import com.mtv.iptv.player.downloads.DownloadQuality
 import com.mtv.iptv.player.downloads.EstadoDescarga
+import com.mtv.iptv.ui.mobile.safeClickable
 import kotlinx.coroutines.launch
 
-/** "123456789" -> "117 MB" / "1.2 GB". */
-private fun formatBytes(bytes: Long): String {
-    if (bytes <= 0) return "0 MB"
-    val gb = bytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
-    return if (gb >= 1.0) "%.1f GB".format(gb) else "%d MB".format(bytes / (1024 * 1024))
+/** Pref de calidad (UserPrefs.dlQuality) -> enum de DownloadQuality. */
+private fun qualityFromPref(pref: String): DownloadQuality = when (pref) {
+    "alta" -> DownloadQuality.ALTA
+    "media" -> DownloadQuality.MEDIA
+    "baja" -> DownloadQuality.BAJA
+    else -> DownloadQuality.AUTOMATICA
 }
+
+private val qualityOptions = listOf(
+    "auto" to "Automática",
+    "alta" to "Alta",
+    "media" to "Media",
+    "baja" to "Baja",
+)
 
 /**
  * Botón de descarga con estado: Download / progreso con % / Check / error.
  * [id] es el mediaKey ("vod:123", "ep:456"...). Si [adaptive] es true muestra
- * el diálogo de calidad antes de descargar.
+ * el diálogo de calidad antes de descargar; si no, usa la calidad configurada
+ * en Ajustes → Descargas.
  */
 @Composable
 fun DownloadButton(
@@ -81,6 +94,7 @@ fun DownloadButton(
     val module = container.downloadModule
     val scope = rememberCoroutineScope()
     val estado by module.tracker.estadoFlow(id).collectAsState(initial = EstadoDescarga.NoDescargado)
+    val prefQuality by container.userPrefs.dlQuality.collectAsState(initial = "alta")
     var showQuality by remember { mutableStateOf(false) }
     var starting by remember { mutableStateOf(false) }
 
@@ -93,7 +107,7 @@ fun DownloadButton(
     }
 
     fun onTap() {
-        if (adaptive) showQuality = true else start(DownloadQuality.AUTOMATICA)
+        if (adaptive) showQuality = true else start(qualityFromPref(prefQuality))
     }
 
     when (val e = estado) {
@@ -158,6 +172,14 @@ fun DownloadButton(
 
 // ---------------- Pantalla "Mis descargas" ----------------
 
+/**
+ * Mis descargas: tarjeta por item (miniatura, título, tamaño, estado),
+ * progreso visible de las activas, barra de espacio usado, y acciones:
+ * reproducir offline, borrar, y ajuste de calidad/ubicación.
+ *
+ * La reproducción offline funciona con la misma URL: el reproductor lee del
+ * caché compartido de Media3 (DownloadModule), sin usar datos.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DownloadsScreen(onBack: () -> Unit) {
@@ -166,7 +188,16 @@ fun DownloadsScreen(onBack: () -> Unit) {
     val module = container.downloadModule
     val scope = rememberCoroutineScope()
     val entradas by module.tracker.entradas.collectAsState()
+    val dlQuality by container.userPrefs.dlQuality.collectAsState(initial = "alta")
+
     val espacio = remember(entradas) { module.usedSpaceBytes() }
+    val maxEspacio = module.maxCacheBytes
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    var qualityDialog by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf<DownloadEntry?>(null) }
+
+    fun showMessage(msg: String) = scope.launch { snackbarHostState.showSnackbar(msg) }
 
     Scaffold(
         topBar = {
@@ -179,18 +210,42 @@ fun DownloadsScreen(onBack: () -> Unit) {
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            Text(
-                "Espacio usado: ${formatBytes(espacio)}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            // ---- Barra de espacio usado ----
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                val progress = if (maxEspacio > 0) (espacio.toFloat() / maxEspacio).coerceIn(0f, 1f) else 0f
+                LinearProgressIndicator(
+                    progress = progress,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Espacio usado: ${formatBytes(espacio)} de ${formatBytes(maxEspacio)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            // ---- Ajustes de descarga ----
+            DownloadSettingRow(
+                title = "Calidad de descarga",
+                subtitle = qualityOptions.firstOrNull { it.first == dlQuality }?.second ?: dlQuality,
+                onClick = { qualityDialog = true },
             )
+            DownloadSettingRow(
+                title = "Ubicación",
+                subtitle = "Almacenamiento interno (caché de la app)",
+                onClick = null,
+            )
+
+            Spacer(Modifier.height(4.dp))
+
             if (entradas.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -206,26 +261,107 @@ fun DownloadsScreen(onBack: () -> Unit) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
                 ) {
                     items(entradas, key = { it.id }) { entry ->
-                        DownloadRow(
+                        DownloadCard(
                             entry = entry,
                             onPlay = {
                                 PlayerActivity.start(
                                     context, entry.url, entry.title, entry.id, entry.imageUrl
                                 )
                             },
-                            onDelete = { module.removeDownload(entry.id) },
+                            onDelete = { confirmDelete = entry },
                         )
                     }
                 }
             }
         }
     }
+
+    if (qualityDialog) {
+        AlertDialog(
+            onDismissRequest = { qualityDialog = false },
+            title = { Text("Calidad de descarga") },
+            text = {
+                Column {
+                    qualityOptions.forEach { (value, label) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .safeClickable {
+                                    scope.launch { container.userPrefs.setDlQuality(value) }
+                                    qualityDialog = false
+                                }
+                                .padding(vertical = 12.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = value == dlQuality,
+                                onClick = {
+                                    scope.launch { container.userPrefs.setDlQuality(value) }
+                                    qualityDialog = false
+                                },
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(label)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { qualityDialog = false }) { Text("Cancelar") }
+            },
+        )
+    }
+
+    val toDelete = confirmDelete
+    if (toDelete != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text("Borrar descarga") },
+            text = { Text("Se borra \"${toDelete.title}\" de este dispositivo. ¿Seguro?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = null
+                    module.removeDownload(toDelete.id)
+                    showMessage("Descarga borrada")
+                }) { Text("Borrar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = null }) { Text("Cancelar") }
+            },
+        )
+    }
 }
 
 @Composable
-private fun DownloadRow(
+private fun DownloadSettingRow(
+    title: String,
+    subtitle: String,
+    onClick: (() -> Unit)?,
+) {
+    var rowModifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 16.dp, vertical = 10.dp)
+    if (onClick != null) rowModifier = rowModifier.safeClickable(onClick = onClick)
+    Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Tarjeta de una descarga: miniatura, título, tamaño, estado y acciones. */
+@Composable
+private fun DownloadCard(
     entry: DownloadEntry,
     onPlay: () -> Unit,
     onDelete: () -> Unit,
@@ -268,7 +404,8 @@ private fun DownloadRow(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Descargando… ${e.progreso}%",
+                            "Descargando… ${e.progreso}% • ${formatBytes(entry.bytesDescargados)}" +
+                                sizeSuffix(entry.tamanoTotal),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.secondary,
                         )
@@ -287,7 +424,7 @@ private fun DownloadRow(
                 }
             }
             IconButton(onClick = onPlay) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Reproducir")
+                Icon(Icons.Default.PlayArrow, contentDescription = "Reproducir sin conexión")
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = "Borrar descarga")
@@ -295,3 +432,7 @@ private fun DownloadRow(
         }
     }
 }
+
+/** " de 1.2 GB" si se conoce el tamaño total, "" si no. */
+private fun sizeSuffix(total: Long): String =
+    if (total > 0) " de ${formatBytes(total)}" else ""

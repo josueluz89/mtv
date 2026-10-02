@@ -6,6 +6,13 @@ import retrofit2.http.Query
 
 interface TmdbApi {
 
+    /** Tendencias de la semana (películas + series). Para el carrusel hero. */
+    @GET("trending/all/week")
+    suspend fun trendingWeek(
+        @Query("api_key") apiKey: String,
+        @Query("language") language: String = "es",
+    ): TmdbSearchResponse
+
     @GET("search/movie")
     suspend fun searchMovie(
         @Query("api_key") apiKey: String,

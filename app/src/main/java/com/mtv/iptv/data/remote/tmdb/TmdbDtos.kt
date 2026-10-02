@@ -11,6 +11,8 @@ data class TmdbSearchResult(
     val id: Int = 0,
     val title: String = "",
     val name: String = "",
+    /** "movie" | "tv" (solo viene en trending/all; default "" = desconocido). */
+    @SerialName("media_type") val mediaType: String = "",
     @SerialName("poster_path") val posterPath: String? = null,
     @SerialName("backdrop_path") val backdropPath: String? = null,
     @SerialName("release_date") val releaseDate: String = "",

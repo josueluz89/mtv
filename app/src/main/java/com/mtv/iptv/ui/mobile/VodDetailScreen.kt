@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mtv.iptv.PlayerActivity
+import com.mtv.iptv.ui.downloads.DownloadButton
 import com.mtv.iptv.data.local.db.FavoriteEntity
 import com.mtv.iptv.data.remote.tmdb.TitleCleaner
 import com.mtv.iptv.data.remote.tmdb.TmdbClient

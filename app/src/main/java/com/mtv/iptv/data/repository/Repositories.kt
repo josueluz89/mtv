@@ -6,6 +6,8 @@ import com.mtv.iptv.data.local.db.PlaybackDao
 import com.mtv.iptv.data.local.db.PlaybackEntity
 import com.mtv.iptv.data.local.db.ServerDao
 import com.mtv.iptv.data.local.db.ServerEntity
+import com.mtv.iptv.data.local.db.SpeedTestDao
+import com.mtv.iptv.data.local.db.SpeedTestRecord
 import kotlinx.coroutines.flow.Flow
 
 class ServerRepository(private val dao: ServerDao) {
@@ -52,4 +54,22 @@ class PlaybackRepository(private val dao: PlaybackDao) {
     suspend fun save(entity: PlaybackEntity) = dao.upsert(entity)
     suspend fun recent(limit: Int = 15): List<PlaybackEntity> = dao.recent(limit)
     suspend fun delete(mediaKey: String) = dao.deleteByKey(mediaKey)
+}
+
+/** Historial de mediciones del test de velocidad. */
+class SpeedTestHistoryRepository(private val dao: SpeedTestDao) {
+    fun observeAll(): Flow<List<SpeedTestRecord>> = dao.observeAll()
+
+    suspend fun record(mbps: Double, dnsLabel: String, verdict: String) {
+        dao.insert(
+            SpeedTestRecord(
+                mbps = mbps,
+                dnsLabel = dnsLabel,
+                verdict = verdict,
+                measuredAt = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    suspend fun clear() = dao.clear()
 }
