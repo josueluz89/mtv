@@ -423,7 +423,7 @@ fun SeriesDetailScreen(
                         EpisodeRow(
                             episode = ep,
                             poster = poster,
-                            onPlay = { playEpisode(ep, title, poster, selectedSeason.orEmpty()) },
+                            onPlay = { playEpisode(ep, title, poster, selectedSeason) },
                         )
                     }
                 }
