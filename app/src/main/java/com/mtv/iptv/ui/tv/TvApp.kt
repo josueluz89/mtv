@@ -334,12 +334,6 @@ fun TvMainScreen(
                 TvFavoritesScreen(
                     onVod = { navController.navigate("tv_main/movies/vod/$it?pos=-1&total=-1") },
                     onSeries = { navController.navigate("tv_main/series/series/$it?pos=-1&total=-1") },
-                    onLiveGroup = {
-                        navController.navigate("tv_main/tv") {
-                            popUpTo("tv_main/$section") { inclusive = true }
-                            launchSingleTop = true
-                        }
-                    },
                 )
             }
             "history" -> Box(Modifier.weight(1f).fillMaxHeight()) {

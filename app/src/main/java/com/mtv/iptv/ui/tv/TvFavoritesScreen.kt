@@ -31,15 +31,14 @@ import kotlinx.coroutines.launch
 
 /**
  * "Mi lista" en TV: grilla de 6 pósters por fila con los favoritos.
- * El click depende del tipo: vod/series abren el detalle, "live" reproduce
- * el canal en vivo y "livegroup" vuelve a la guía de TV.
+ * El click depende del tipo: vod/series abren el detalle y "live"
+ * reproduce el canal en vivo.
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TvFavoritesScreen(
     onVod: (Int) -> Unit,
     onSeries: (Int) -> Unit,
-    onLiveGroup: () -> Unit,
 ) {
     val context = LocalContext.current
     val container = LocalAppContainer.current
@@ -98,7 +97,6 @@ fun TvFavoritesScreen(
                                 "vod" -> f.refId.toIntOrNull()?.let(onVod)
                                 "series" -> f.refId.toIntOrNull()?.let(onSeries)
                                 "live" -> openLive(f.name, f.refId, f.imageUrl)
-                                "livegroup" -> onLiveGroup()
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),

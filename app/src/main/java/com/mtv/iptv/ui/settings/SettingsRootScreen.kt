@@ -69,7 +69,7 @@ fun SettingsRootScreen(onGroup: (String) -> Unit) {
         SettingsGroup(
             SettingsRoutes.REMOTE,
             "Mando a distancia",
-            "Teclas de canal, guía e info",
+            "Teclas de canal e info",
             Icons.Default.Gamepad,
         ),
         SettingsGroup(
