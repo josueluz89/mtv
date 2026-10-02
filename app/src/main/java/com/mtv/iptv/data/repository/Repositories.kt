@@ -16,15 +16,15 @@ class ServerRepository(private val dao: ServerDao) {
     suspend fun delete(server: ServerEntity) = dao.delete(server)
 
     /**
-     * Servidores precargados (solo URL; el usuario ingresa su usuario/clave en la app).
-     * Se insertan una sola vez, cuando la tabla está vacía.
+     * Fila única de servidor (los DNS están ocultos en el código, no en la UI).
+     * Devuelve la primera fila existente o crea una (name="MTV").
+     * La fila se persiste de inmediato para que su id sea estable y los
+     * favoritos (keyed por serverId) sigan funcionando.
      */
-    suspend fun ensurePresets() {
-        if (dao.count() == 0) {
-            dao.upsert(ServerEntity(name = "Lion TV", url = "http://liontv.es:8080"))
-            dao.upsert(ServerEntity(name = "TVPrem", url = "https://tvprem.pro:80"))
-            dao.upsert(ServerEntity(name = "CC IPTV", url = "http://cciptv.es:80"))
-        }
+    suspend fun getOrCreateSingle(): ServerEntity {
+        dao.getAll().firstOrNull()?.let { return it }
+        val id = dao.upsert(ServerEntity(name = "MTV"))
+        return ServerEntity(id = id, name = "MTV")
     }
 }
 

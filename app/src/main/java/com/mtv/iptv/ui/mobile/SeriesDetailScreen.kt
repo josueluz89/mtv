@@ -270,7 +270,7 @@ fun SeriesDetailScreen(seriesId: Int, onBack: () -> Unit) {
                     }
                     Spacer(Modifier.height(8.dp))
                 }
-                items(episodes, key = { it.id.ifBlank { "ep-${it.episodeNum}" } }) { ep ->
+                items(episodes, key = { "${it.id.ifBlank { "ep" }}:${it.episodeNum}:${it.title}" }) { ep ->
                     Card(
                         onClick = {
                             playEpisode(

@@ -13,12 +13,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -42,7 +43,6 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.mtv.iptv.PlayerActivity
 import com.mtv.iptv.data.local.db.PlaybackEntity
-import com.mtv.iptv.data.local.db.ServerEntity
 import com.mtv.iptv.data.remote.tmdb.TitleCleaner
 import com.mtv.iptv.data.remote.tmdb.TmdbClient
 import com.mtv.iptv.data.remote.tmdb.TmdbMedia
@@ -53,7 +53,6 @@ import com.mtv.iptv.data.remote.xtream.XtreamLiveStream
 import com.mtv.iptv.data.remote.xtream.XtreamSeries
 import com.mtv.iptv.data.remote.xtream.XtreamVodStream
 import com.mtv.iptv.di.LocalAppContainer
-import com.mtv.iptv.ui.mobile.ServerEditDialog
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -104,101 +103,95 @@ fun TvApp() {
     }
 }
 
-// ---------------- Servidores (TV) ----------------
+// ---------------- Login (TV) ----------------
 
+/**
+ * Login simplificado: solo usuario y contraseña. Los servidores (DNS) están
+ * ocultos en el código y se prueban en orden hasta que uno acepta las
+ * credenciales. Usa OutlinedTextField de material3 para que el input funcione
+ * con el control remoto.
+ */
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalTvFoundationApi::class)
 @Composable
 fun TvServersScreen(onConnected: () -> Unit) {
     val container = LocalAppContainer.current
     val scope = rememberCoroutineScope()
-    val servers by container.serverRepository.observeAll().collectAsState(initial = emptyList())
-    var connectingId by remember { mutableStateOf<Long?>(null) }
+
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var showDialog by remember { mutableStateOf(false) }
-    var editing by remember { mutableStateOf<ServerEntity?>(null) }
 
-    LaunchedEffect(Unit) { container.serverRepository.ensurePresets() }
-
-    fun connect(server: ServerEntity) {
-        if (server.username.isBlank() || server.password.isBlank()) {
-            error = "Editá el servidor para ingresar tu usuario y contraseña."
+    fun connect() {
+        val user = username.trim()
+        if (user.isBlank() || password.isBlank()) {
+            error = "Ingresá tu usuario y contraseña."
             return
         }
-        connectingId = server.id
+        loading = true
         error = null
         scope.launch {
-            when (container.xtreamRepository.login(server)) {
+            when (val result = container.xtreamRepository.loginAuto(user, password)) {
                 is LoginResult.Ok -> {
-                    container.userPrefs.setLastServerId(server.id)
-                    connectingId = null
+                    // Fila única estable: se actualiza con la URL efectiva y las credenciales.
+                    val row = container.serverRepository.getOrCreateSingle()
+                    val updated = row.copy(
+                        name = "MTV",
+                        url = result.session.baseUrl,
+                        username = user,
+                        password = password,
+                    )
+                    container.serverRepository.upsert(updated)
+                    container.xtreamRepository.updateSessionServer(updated)
+                    container.userPrefs.setLastServerId(row.id)
+                    loading = false
                     onConnected()
                 }
                 LoginResult.AuthFailed -> {
-                    connectingId = null
+                    loading = false
                     error = "Usuario o contraseña inválidos."
                 }
                 is LoginResult.NetworkError -> {
-                    connectingId = null
-                    error = "No se pudo conectar con el servidor."
+                    loading = false
+                    error = "No se pudo conectar con el servidor. Revisá tu conexión."
                 }
             }
         }
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(48.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        item { Text("MTV — Servidores", style = MaterialTheme.typography.displaySmall) }
-        if (error != null) {
-            item { Text(error!!, style = MaterialTheme.typography.bodyLarge) }
-        }
-        items(servers, key = { it.id }) { server ->
-            Card(
-                onClick = { if (connectingId == null) connect(server) },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(server.name, style = MaterialTheme.typography.headlineSmall)
-                        Text(server.url, style = MaterialTheme.typography.bodyMedium)
-                    }
-                    Button(onClick = { editing = server; showDialog = true }) {
-                        Text("Editar")
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Button(onClick = { if (connectingId == null) connect(server) }) {
-                        Text(if (connectingId == server.id) "Conectando…" else "Conectar")
-                    }
-                }
-            }
-        }
-        item {
-            Button(onClick = { editing = null; showDialog = true }) {
-                Text("Agregar servidor")
-            }
-        }
-    }
-
-    if (showDialog) {
-        ServerEditDialog(
-            server = editing,
-            onDismiss = { showDialog = false },
-            onSave = { name, url, username, password ->
-                scope.launch {
-                    val entity = editing?.copy(name = name, url = url, username = username, password = password)
-                        ?: ServerEntity(name = name, url = url, username = username, password = password)
-                    container.serverRepository.upsert(entity)
-                    showDialog = false
-                }
-            },
+        Text("MTV", style = MaterialTheme.typography.displaySmall)
+        Spacer(Modifier.height(24.dp))
+        OutlinedTextField(
+            value = username,
+            onValueChange = { username = it },
+            label = { Text("Usuario") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(0.6f),
         )
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Contraseña") },
+            visualTransformation = PasswordVisualTransformation(),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(0.6f),
+        )
+        Spacer(Modifier.height(20.dp))
+        if (error != null) {
+            Text(error!!, style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(12.dp))
+        }
+        Button(onClick = ::connect, enabled = !loading) {
+            Text(if (loading) "Conectando…" else "Conectar")
+        }
     }
 }
 
@@ -269,7 +262,7 @@ fun TvBrowseScreen(
             item { Text("En vivo", style = MaterialTheme.typography.headlineSmall) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    items(liveItems, key = { it.streamId }) { s ->
+                    items(liveItems, key = { "${it.streamId}:${it.name}" }) { s ->
                         TvMediaCard(title = s.name, imageUrl = s.streamIcon.ifBlank { null }) {
                             PlayerActivity.start(context, repo.liveUrl(s.streamId), s.name, "live:${s.streamId}", s.streamIcon)
                         }
@@ -281,7 +274,7 @@ fun TvBrowseScreen(
             item { Text("Películas", style = MaterialTheme.typography.headlineSmall) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    items(vodItems, key = { it.streamId }) { v ->
+                    items(vodItems, key = { "${it.streamId}:${it.name}" }) { v ->
                         TvMediaCard(title = v.name, imageUrl = v.streamIcon.ifBlank { null }) {
                             onVod(v.streamId)
                         }
@@ -293,7 +286,7 @@ fun TvBrowseScreen(
             item { Text("Series", style = MaterialTheme.typography.headlineSmall) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    items(seriesItems, key = { it.seriesId }) { s ->
+                    items(seriesItems, key = { "${it.seriesId}:${it.name}" }) { s ->
                         TvMediaCard(title = s.name, imageUrl = s.cover.ifBlank { null }) {
                             onSeries(s.seriesId)
                         }
@@ -472,7 +465,7 @@ fun TvSeriesDetailsScreen(seriesId: Int, onBack: () -> Unit) {
         }
         if (episodes.isNotEmpty()) {
             item { Text("Episodios", style = MaterialTheme.typography.headlineSmall) }
-            items(episodes, key = { it.id.ifBlank { "ep-${it.episodeNum}" } }) { ep ->
+            items(episodes, key = { "${it.id.ifBlank { "ep" }}:${it.episodeNum}:${it.title}" }) { ep ->
                 Card(
                     onClick = {
                         PlayerActivity.start(

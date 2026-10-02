@@ -73,7 +73,7 @@ fun CategoryListScreen(
                 "live" -> repo.getLiveCategories()
                 "vod" -> repo.getVodCategories()
                 else -> repo.getSeriesCategories()
-            }
+            }.distinctBy { it.categoryId }
         } catch (e: Exception) {
             error = "No se pudieron cargar las categorías."
         }
@@ -138,7 +138,7 @@ fun CategoryListScreen(
                         label = { Text("Todo") },
                     )
                 }
-                items(categories, key = { it.categoryId }) { cat ->
+                items(categories, key = { "${it.categoryId}:${it.categoryName}" }) { cat ->
                     FilterChip(
                         selected = selectedCat == cat.categoryId,
                         onClick = { selectedCat = cat.categoryId },
@@ -160,7 +160,7 @@ fun CategoryListScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.weight(1f),
                 ) {
-                    items(filteredLive, key = { it.streamId }) { s ->
+                    items(filteredLive, key = { "${it.streamId}:${it.name}" }) { s ->
                         ChannelCard(
                             iconUrl = s.streamIcon.ifBlank { null },
                             name = s.name,
@@ -183,7 +183,7 @@ fun CategoryListScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.weight(1f),
                 ) {
-                    items(filteredVod, key = { it.streamId }) { v ->
+                    items(filteredVod, key = { "${it.streamId}:${it.name}" }) { v ->
                         PosterCard(
                             imageUrl = v.streamIcon.ifBlank { null },
                             title = v.name,
@@ -198,7 +198,7 @@ fun CategoryListScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.weight(1f),
                 ) {
-                    items(filteredSeries, key = { it.seriesId }) { s ->
+                    items(filteredSeries, key = { "${it.seriesId}:${it.name}" }) { s ->
                         PosterCard(
                             imageUrl = s.cover.ifBlank { null },
                             title = s.name,

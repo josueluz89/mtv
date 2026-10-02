@@ -272,7 +272,7 @@ fun VodDetailScreen(streamId: Int, onBack: () -> Unit, onVod: (Int) -> Unit) {
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    items(similar, key = { it.id }) { s ->
+                    items(similar, key = { "${it.id}:${it.title.ifBlank { it.name }}" }) { s ->
                         PosterCard(
                             imageUrl = TmdbClient.posterUrl(s.posterPath),
                             title = s.title.ifBlank { s.name },

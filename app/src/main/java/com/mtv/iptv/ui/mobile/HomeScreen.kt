@@ -147,7 +147,7 @@ fun HomeScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(liveItems, key = { it.streamId }) { s ->
+                            items(liveItems, key = { "${it.streamId}:${it.name}" }) { s ->
                                 PosterCard(
                                     imageUrl = s.streamIcon.ifBlank { null },
                                     title = s.name,
@@ -176,7 +176,7 @@ fun HomeScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(vodItems, key = { it.streamId }) { v ->
+                            items(vodItems, key = { "${it.streamId}:${it.name}" }) { v ->
                                 PosterCard(
                                     imageUrl = v.streamIcon.ifBlank { null },
                                     title = v.name,
@@ -197,7 +197,7 @@ fun HomeScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(seriesItems, key = { it.seriesId }) { s ->
+                            items(seriesItems, key = { "${it.seriesId}:${it.name}" }) { s ->
                                 PosterCard(
                                     imageUrl = s.cover.ifBlank { null },
                                     title = s.name,
