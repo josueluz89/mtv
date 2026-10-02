@@ -19,7 +19,7 @@ import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Play
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +43,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextOverflow
@@ -206,7 +207,7 @@ fun TvPlayerScreen(
             showIndicator(Icons.Default.Pause, "Pausa")
         } else {
             manager.resume()
-            showIndicator(Icons.Default.Play, "Reproduciendo")
+            showIndicator(Icons.Default.PlayArrow, "Reproduciendo")
         }
         pokeControls()
     }
@@ -251,7 +252,7 @@ fun TvPlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .onPreviewKeyEvent { event ->
+            .onPreviewKeyEvent { event: KeyEvent ->
                 // Atrás siempre sale (no lo consumimos).
                 if (event.key == Key.Back) return@onPreviewKeyEvent false
                 val wasHidden = !controlsVisible
@@ -313,7 +314,7 @@ fun TvPlayerScreen(
                         modifier = Modifier.focusRequester(playFocus),
                     ) {
                         Icon(
-                            if (isPlaying) Icons.Default.Pause else Icons.Default.Play,
+                            if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pausar" else "Reproducir",
                             tint = Color.White,
                         )

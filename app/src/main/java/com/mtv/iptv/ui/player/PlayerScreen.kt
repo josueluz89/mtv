@@ -31,7 +31,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
-import androidx.compose.material.icons.filled.Play
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
@@ -311,7 +311,7 @@ fun PlayerScreen(
             showIndicator(Icons.Default.Pause, "Pausa")
         } else {
             manager.resume()
-            showIndicator(Icons.Default.Play, "Reproduciendo")
+            showIndicator(Icons.Default.PlayArrow, "Reproduciendo")
         }
         pokeControls()
     }
@@ -505,7 +505,7 @@ fun PlayerScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { togglePlay() }) {
                         Icon(
-                            if (isPlaying) Icons.Default.Pause else Icons.Default.Play,
+                            if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pausar" else "Reproducir",
                             tint = Color.White,
                         )

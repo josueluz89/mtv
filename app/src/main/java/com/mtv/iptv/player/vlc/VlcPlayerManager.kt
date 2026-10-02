@@ -198,7 +198,7 @@ class VlcPlayerManager(
         mediaKey: String,
         title: String,
         imageUrl: String,
-        startPositionMs: Long = 0,
+        startPositionMs: Long,
     ) {
         currentMediaKey = mediaKey
         currentTitle = title
@@ -274,14 +274,15 @@ class VlcPlayerManager(
     }
 
     /**
-     * Geometría de recorte/zoom (formato VLC, ej. "16:9", "16:10", "1.85:1").
-     * null = sin recorte (automático).
+     * Geometría de recorte/zoom. NOTA: libVLC 3.6 eliminó cropGeometry;
+     * el zoom se logra con [setScale]. Se conserva el método por
+     * compatibilidad pero no tiene efecto.
      */
-    fun setCropGeometry(geometry: String?) {
-        mediaPlayer.cropGeometry = geometry
+    fun setCropGeometry(@Suppress("UNUSED_PARAMETER") geometry: String?) {
+        // Sin-op en libVLC 3.6+: usar setScale() para zoom.
     }
 
-    /** Escala del video (1f = normal). */
+    /** Escala del video (1f = normal; 0f = ajustar a la ventana). */
     fun setScale(factor: Float) {
         mediaPlayer.scale = factor
     }
@@ -380,18 +381,19 @@ class VlcPlayerManager(
     // ---------------- Presentación (VlcPlayer) ----------------
 
     override fun setAspectMode(mode: VlcAspectMode) {
+        // libVLC 3.6 no tiene cropGeometry: se combina aspectRatio + scale.
         when (mode) {
             VlcAspectMode.FIT -> {
                 mediaPlayer.aspectRatio = null
-                mediaPlayer.cropGeometry = null
+                mediaPlayer.scale = 0f // 0 = ajustar a la ventana
             }
             VlcAspectMode.FILL -> {
                 mediaPlayer.aspectRatio = "16:9"
-                mediaPlayer.cropGeometry = null
+                mediaPlayer.scale = 0f
             }
             VlcAspectMode.ZOOM -> {
                 mediaPlayer.aspectRatio = null
-                mediaPlayer.cropGeometry = "16:10"
+                mediaPlayer.scale = 1.5f // acercar
             }
         }
     }

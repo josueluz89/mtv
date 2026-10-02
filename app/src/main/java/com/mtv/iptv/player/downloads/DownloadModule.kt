@@ -116,18 +116,20 @@ class DownloadModule(appContext: Context) {
      * (HLS/DASH) guardan segmentos sueltos, así que devuelven null y se
      * reproducen por red; las progresivas completas devuelven el archivo.
      */
-    fun localPlaybackFile(url: String): File? = try {
-        val spans = cache.getCachedSpans(url).sortedBy { it.position }
-        if (spans.isEmpty()) return null
-        var expected = 0L
-        for (span in spans) {
-            if (!span.isCached || span.position != expected || span.isOpenEnded) return null
-            expected = span.position + span.length
+    fun localPlaybackFile(url: String): File? {
+        return try {
+            val spans = cache.getCachedSpans(url).sortedBy { it.position }
+            if (spans.isEmpty()) return null
+            var expected = 0L
+            for (span in spans) {
+                if (!span.isCached || span.position != expected || span.isOpenEnded) return null
+                expected = span.position + span.length
+            }
+            val files = spans.mapNotNull { it.file }.distinct()
+            if (files.size != 1) null else files.first().takeIf { it.exists() }
+        } catch (_: Exception) {
+            null
         }
-        val files = spans.mapNotNull { it.file }.distinct()
-        if (files.size != 1) null else files.first().takeIf { it.exists() }
-    } catch (_: Exception) {
-        null
     }
 
     /**
