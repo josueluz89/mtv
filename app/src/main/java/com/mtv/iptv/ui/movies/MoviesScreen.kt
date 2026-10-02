@@ -5,12 +5,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -18,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -29,10 +35,11 @@ import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.ui.common.CatalogHero
 import com.mtv.iptv.ui.common.ImPosterCard
 import com.mtv.iptv.ui.common.MtvBg
+import com.mtv.iptv.ui.common.MtvOnBg
 import com.mtv.iptv.ui.common.MtvUiTheme
 import com.mtv.iptv.ui.common.RowTitle
 import com.mtv.iptv.ui.common.ScreenTopBar
-import com.mtv.iptv.ui.common.SectionHeaderRow
+import com.mtv.iptv.ui.common.SecondaryButton
 import com.mtv.iptv.ui.common.SortMenuButton
 import com.mtv.iptv.ui.common.buildMeta
 import com.mtv.iptv.ui.common.catalogSortLabel
@@ -50,6 +57,9 @@ import kotlinx.coroutines.withContext
 object MoviesRoutes {
     const val MOVIES = "v12_movies"
     const val ALL_MOVIES = "v12_all_movies"
+    const val MOVIE_FOLDERS = "v12_movie_folders"
+    const val MOVIE_FOLDER_BASE = "v12_movie_folder"
+    fun movieFolder(categoryId: String) = "$MOVIE_FOLDER_BASE/$categoryId"
 }
 
 /** Primeras N categorías que se muestran como filas en la pantalla principal. */
@@ -78,6 +88,7 @@ fun MoviesScreen(
     onBack: () -> Unit,
     onVod: (Int) -> Unit,
     onSeeAll: () -> Unit,
+    onFolders: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val container = LocalAppContainer.current
@@ -208,11 +219,27 @@ fun MoviesScreen(
                         }
                     }
                     item {
-                        SectionHeaderRow(
-                            title = "All Movies (${all.size})",
-                            onSeeAll = onSeeAll,
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .padding(top = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "All Movies (${all.size})",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MtvOnBg,
+                                modifier = Modifier.weight(1f),
+                            )
+                            SecondaryButton(
+                                text = "Carpetas",
+                                onClick = onFolders,
+                                icon = Icons.Default.Folder,
+                                modifier = Modifier.padding(end = 8.dp),
+                            )
+                            SecondaryButton(text = "Ver todo", onClick = onSeeAll)
+                        }
                     }
                     if (topRated.isNotEmpty()) {
                         item { RowTitle("Mejor valoradas") }

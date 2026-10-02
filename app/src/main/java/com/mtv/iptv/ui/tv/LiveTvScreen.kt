@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mtv.iptv.player.ExternalPlayer
+import com.mtv.iptv.player.ZapChannel
 import com.mtv.iptv.data.remote.xtream.XtreamLiveStream
 import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.ui.common.MtvBg
@@ -61,6 +64,8 @@ import com.mtv.iptv.ui.common.ScreenTopBar
 import com.mtv.iptv.ui.mobile.ErrorBox
 import com.mtv.iptv.ui.mobile.LoadingBox
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Rutas que expone esta pantalla para que el coordinador las registre. */
@@ -97,20 +102,52 @@ fun LiveTvScreen(onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var expandedId by remember { mutableStateOf<String?>(null) }
     var reloadTick by remember { mutableStateOf(0) }
+    var liveOrder by remember { mutableStateOf("proveedor") }
+    val scope = rememberCoroutineScope()
+
+    /**
+     * Ordena los canales de un grupo según la preferencia: "proveedor" usa el
+     * número de canal del proveedor (los que no traen número van al final),
+     * "alfabetico" ordena por nombre como antes.
+     */
+    fun sortChannels(
+        channels: List<XtreamLiveStream>,
+        order: String,
+    ): List<XtreamLiveStream> = if (order == "alfabetico") {
+        channels.sortedBy { it.name.lowercase() }
+    } else {
+        channels.sortedWith(
+            compareBy(
+                { it.num.takeIf { n -> n > 0 } ?: Int.MAX_VALUE },
+                { it.name.lowercase() },
+            ),
+        )
+    }
+
+    fun changeOrder(value: String) {
+        liveOrder = value
+        scope.launch {
+            try {
+                container.userPrefs.setLiveTvOrder(value)
+            } catch (e: Exception) {
+            }
+        }
+    }
 
     LaunchedEffect(reloadTick) {
         loading = true
         error = null
         try {
+            liveOrder = container.userPrefs.liveTvOrder.first()
             val cats = repo.getLiveCategories().distinctBy { it.categoryId }
+            val order = liveOrder
             groups = withContext(Dispatchers.Default) {
                 val byCat = repo.getLiveStreams(null).groupBy { it.categoryId }
                 cats.map { cat ->
                     LiveCategoryGroup(
                         id = cat.categoryId,
                         name = cat.categoryName.ifBlank { "Sin categoría" },
-                        channels = byCat[cat.categoryId].orEmpty()
-                            .sortedBy { it.name.lowercase() },
+                        channels = sortChannels(byCat[cat.categoryId].orEmpty(), order),
                     )
                 }.filter { it.channels.isNotEmpty() }
             }
@@ -120,12 +157,31 @@ fun LiveTvScreen(onBack: () -> Unit) {
         loading = false
     }
 
-    fun playChannel(s: XtreamLiveStream) {
+    // Reordena en memoria cuando cambia el toggle, sin recargar la red.
+    LaunchedEffect(liveOrder) {
+        if (groups.isNotEmpty()) {
+            val order = liveOrder
+            groups = withContext(Dispatchers.Default) {
+                groups.map { g -> g.copy(channels = sortChannels(g.channels, order)) }
+            }
+        }
+    }
+
+    fun playChannel(s: XtreamLiveStream, group: LiveCategoryGroup) {
+        val zap = group.channels.map {
+            ZapChannel(
+                streamId = it.streamId,
+                name = it.name,
+                num = it.num,
+                icon = it.streamIcon,
+            )
+        }
         ExternalPlayer.play(context, container,
             repo.liveUrl(s.streamId),
             s.name,
             "live:${s.streamId}",
             s.streamIcon,
+            zapChannels = zap,
         )
     }
 
@@ -136,6 +192,30 @@ fun LiveTvScreen(onBack: () -> Unit) {
                 .background(MtvBg),
         ) {
             ScreenTopBar(title = "TV en vivo", onBack = onBack)
+            // Toggle de orden: número del proveedor o alfabético.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Orden:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MtvOnVariant,
+                )
+                FilterChip(
+                    selected = liveOrder == "proveedor",
+                    onClick = { changeOrder("proveedor") },
+                    label = { Text("Proveedor") },
+                )
+                FilterChip(
+                    selected = liveOrder == "alfabetico",
+                    onClick = { changeOrder("alfabetico") },
+                    label = { Text("A-Z") },
+                )
+            }
             when {
                 loading -> LoadingBox(Modifier.weight(1f))
                 error != null -> ErrorBox(
@@ -167,7 +247,7 @@ fun LiveTvScreen(onBack: () -> Unit) {
                             onToggle = {
                                 expandedId = if (expandedId == group.id) null else group.id
                             },
-                            onChannel = ::playChannel,
+                            onChannel = { s -> playChannel(s, group) },
                         )
                     }
                 }
@@ -253,7 +333,11 @@ private fun ExpandableCategoryCard(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     items(group.channels, key = { "${it.streamId}:${it.name}" }) { s ->
-                        ChannelRow(channel = s, onClick = { onChannel(s) })
+                        ChannelRow(
+                            channel = s,
+                            showNumber = liveOrder == "proveedor",
+                            onClick = { onChannel(s) },
+                        )
                     }
                 }
             }
@@ -262,7 +346,11 @@ private fun ExpandableCategoryCard(
 }
 
 @Composable
-private fun ChannelRow(channel: XtreamLiveStream, onClick: () -> Unit) {
+private fun ChannelRow(
+    channel: XtreamLiveStream,
+    showNumber: Boolean,
+    onClick: () -> Unit,
+) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -278,6 +366,15 @@ private fun ChannelRow(channel: XtreamLiveStream, onClick: () -> Unit) {
                 .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Número de canal del proveedor (solo en orden "Proveedor").
+            if (showNumber && channel.num > 0) {
+                Text(
+                    channel.num.toString(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MtvGold,
+                    modifier = Modifier.width(44.dp),
+                )
+            }
             AsyncImage(
                 model = channel.streamIcon.ifBlank { null },
                 contentDescription = channel.name,

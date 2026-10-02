@@ -53,6 +53,7 @@ object ExternalPlayer {
      * Lee la preferencia "player_mode" ("auto" | "internal" | "external"):
      * externo (o auto con VLC instalado) -> app VLC vía [playExternal];
      * en otro caso -> reproductor interno ([PlayerActivity], ExoPlayer).
+     * [zapChannels] solo aplica al reproductor interno (zapping en vivo).
      * Llamar desde cualquier onClick / handler de reproducción.
      */
     fun play(
@@ -62,6 +63,7 @@ object ExternalPlayer {
         title: String,
         mediaKey: String,
         imageUrl: String = "",
+        zapChannels: List<ZapChannel> = emptyList(),
     ) {
         val activity = context as? ComponentActivity
         CoroutineScope(Dispatchers.Main).launch {
@@ -71,7 +73,7 @@ object ExternalPlayer {
             if (activity != null && resolveUseExternal(mode, activity)) {
                 playExternal(activity, url, title, mediaKey, container)
             } else {
-                PlayerActivity.start(context, url, title, mediaKey, imageUrl)
+                PlayerActivity.start(context, url, title, mediaKey, imageUrl, zapChannels)
             }
         }
     }

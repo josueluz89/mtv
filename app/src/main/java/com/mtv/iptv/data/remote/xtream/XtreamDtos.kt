@@ -29,6 +29,10 @@ data class XtreamLiveStream(
     @SerialName("epg_channel_id")
     val epgChannelId: String = "",
     val added: String = "",
+    /** Número de canal asignado por el proveedor (orden de la lista original). */
+    @SerialName("num")
+    @Serializable(with = LenientIntSerializer::class)
+    val num: Int = 0,
 )
 
 @Serializable

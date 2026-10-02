@@ -5,6 +5,9 @@ import android.app.PictureInPictureParams
 import android.content.Context
 import android.media.AudioManager
 import android.util.Rational
+import android.util.TypedValue
+import android.graphics.Color as AndroidColor
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -15,7 +18,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -27,9 +33,12 @@ import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PictureInPictureAlt
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
@@ -37,6 +46,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,9 +62,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -67,10 +79,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.Player
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import coil.compose.AsyncImage
 import com.mtv.iptv.data.local.db.PlaybackEntity
 import com.mtv.iptv.data.remote.tmdb.TitleCleaner
 import com.mtv.iptv.data.remote.xtream.XtreamEpisode
 import com.mtv.iptv.di.LocalAppContainer
+import com.mtv.iptv.player.ZapChannel
+import com.mtv.iptv.ui.mobile.safeClickable
 import com.mtv.iptv.util.formatMs
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -79,6 +94,13 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 private data class Indicator(val icon: ImageVector, val text: String)
+
+/** Tamaño de subtítulos: etiqueta -> dip. */
+private fun subtitleDip(size: String): Float = when (size) {
+    "S" -> 14f
+    "L" -> 24f
+    else -> 18f
+}
 
 /**
  * Reproductor para celular: PlayerView (Media3) + overlay Compose con gestos:
@@ -94,6 +116,7 @@ fun PlayerScreen(
     mediaKey: String,
     imageUrl: String,
     onBack: () -> Unit,
+    zapChannels: List<ZapChannel> = emptyList(),
 ) {
     val context = LocalContext.current
     val activity = context as Activity
@@ -114,6 +137,7 @@ fun PlayerScreen(
     var showSubs by remember { mutableStateOf(false) }
     var showSleep by remember { mutableStateOf(false) }
     var showStreamInfo by remember { mutableStateOf(false) }
+    var showChannels by remember { mutableStateOf(false) }
     var sleepMinutes by remember { mutableIntStateOf(0) }
     var sleepJob by remember { mutableStateOf<Job?>(null) }
     var speed by remember { mutableFloatStateOf(1f) }
@@ -122,8 +146,92 @@ fun PlayerScreen(
 
     // Ajustes de usuario
     val pipEnabled by container.userPrefs.pipEnabled.collectAsState(initial = true)
-    // Clave del medio actual (cambia si el autoplay salta al siguiente episodio).
+    val subtitleSize by container.userPrefs.subtitleSize.collectAsState(initial = "M")
+    val subtitleBackground by container.userPrefs.subtitleBackground.collectAsState(initial = "semi")
+    val subtitleColor by container.userPrefs.subtitleColor.collectAsState(initial = "blanco")
+    // Clave del medio actual (cambia si el autoplay salta al siguiente episodio
+    // o si el zapping cambia de canal en vivo).
     var currentKey by remember { mutableStateOf(mediaKey) }
+    // Título visible (el zapping en vivo lo actualiza sin recrear la pantalla).
+    var currentTitle by remember { mutableStateOf(title) }
+
+    /** Zapping disponible solo en TV en vivo con lista de canales. */
+    val isLiveZap = mediaKey.startsWith("live:") && zapChannels.isNotEmpty()
+
+    /** Cambia al canal en vivo indicado sin salir del reproductor. */
+    fun zapTo(channel: ZapChannel) {
+        val repo = container.xtreamRepository
+        manager.play(
+            repo.liveUrl(channel.streamId),
+            "live:${channel.streamId}",
+            channel.name,
+            channel.icon,
+            0,
+        )
+        player.setPlaybackSpeed(1f)
+        speed = 1f
+        currentKey = "live:${channel.streamId}"
+        currentTitle = channel.name
+        resumeFrom = null
+        showIndicator(Icons.Default.List, "Canal: ${channel.name}")
+    }
+
+    /** Zapping por pasos: -1 anterior, +1 siguiente (con vuelta al inicio/fin). */
+    fun zapStep(delta: Int) {
+        if (zapChannels.isEmpty()) return
+        val currentId = currentKey.removePrefix("live:").toIntOrNull()
+        val idx = zapChannels.indexOfFirst { it.streamId == currentId }
+        val next = if (idx < 0) {
+            zapChannels.first()
+        } else {
+            zapChannels[(idx + delta).mod(zapChannels.size)]
+        }
+        zapTo(next)
+    }
+
+    /** Aplica el tamaño de subtítulos elegido al SubtitleView del PlayerView. */
+    /**
+     * Aplica el estilo de subtítulos elegido en Ajustes → Subtítulos:
+     * tamaño, fondo del recuadro y color del texto. Se ignoran los estilos
+     * embebidos del stream para que el ajuste del usuario siempre gane.
+     */
+    fun applySubtitleStyle(size: String, background: String, color: String) {
+        try {
+            val subtitleView = playerViewRef?.subtitleView ?: return
+            subtitleView.setFixedTextSize(
+                TypedValue.COMPLEX_UNIT_DIP,
+                subtitleDip(size),
+            )
+            subtitleView.setApplyEmbeddedStyles(false)
+            val fg = when (color) {
+                "amarillo" -> AndroidColor.YELLOW
+                "cian" -> AndroidColor.CYAN
+                "verde" -> AndroidColor.GREEN
+                else -> AndroidColor.WHITE
+            }
+            val style = when (background) {
+                "solido" -> CaptionStyleCompat(
+                    fg, AndroidColor.BLACK, AndroidColor.TRANSPARENT,
+                    CaptionStyleCompat.EDGE_TYPE_NONE, AndroidColor.BLACK, null,
+                )
+                "ninguno" -> CaptionStyleCompat(
+                    fg, AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT,
+                    CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW, AndroidColor.BLACK, null,
+                )
+                else -> CaptionStyleCompat(
+                    fg, 0x99000000.toInt(), AndroidColor.TRANSPARENT,
+                    CaptionStyleCompat.EDGE_TYPE_NONE, AndroidColor.BLACK, null,
+                )
+            }
+            subtitleView.setStyle(style)
+        } catch (_: Exception) {
+        }
+    }
+
+    // Aplica el estilo de subtítulos cuando cambia un ajuste o se crea el PlayerView.
+    LaunchedEffect(subtitleSize, subtitleBackground, subtitleColor, playerViewRef) {
+        applySubtitleStyle(subtitleSize, subtitleBackground, subtitleColor)
+    }
 
     /** Arranca la reproducción aplicando la velocidad por defecto del ajuste. */
     fun startPlayback(positionMs: Long) {
@@ -400,12 +508,24 @@ fun PlayerScreen(
                     Icon(Icons.Default.ArrowBack, contentDescription = "Atrás", tint = Color.White)
                 }
                 Text(
-                    title,
+                    currentTitle,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                // Zapping en vivo: anterior / lista / siguiente sin salir.
+                if (isLiveZap) {
+                    IconButton(onClick = { zapStep(-1) }) {
+                        Icon(Icons.Default.SkipPrevious, contentDescription = "Canal anterior", tint = Color.White)
+                    }
+                    IconButton(onClick = { showChannels = true }) {
+                        Icon(Icons.Default.List, contentDescription = "Lista de canales", tint = Color.White)
+                    }
+                    IconButton(onClick = { zapStep(1) }) {
+                        Icon(Icons.Default.SkipNext, contentDescription = "Canal siguiente", tint = Color.White)
+                    }
+                }
                 IconButton(onClick = { showSubs = true }) {
                     Icon(Icons.Default.ClosedCaption, contentDescription = "Subtítulos", tint = Color.White)
                 }
@@ -503,7 +623,19 @@ fun PlayerScreen(
         AudioTrackDialog(manager = manager, onDismiss = { showAudio = false })
     }
     if (showSubs) {
-        SubtitleTrackDialog(manager = manager, onDismiss = { showSubs = false })
+        SubtitleTrackDialog(
+            manager = manager,
+            subtitleSize = subtitleSize,
+            onSizeSelect = { size ->
+                scope.launch {
+                    try {
+                        container.userPrefs.setSubtitleSize(size)
+                    } catch (_: Exception) {
+                    }
+                }
+            },
+            onDismiss = { showSubs = false },
+        )
     }
     if (showSleep) {
         SleepTimerDialog(
@@ -514,5 +646,64 @@ fun PlayerScreen(
     }
     if (showStreamInfo) {
         StreamInfoDialog(manager = manager, onDismiss = { showStreamInfo = false })
+    }
+
+    // Lista rápida de canales (zapping en vivo).
+    if (showChannels && isLiveZap) {
+        val currentId = currentKey.removePrefix("live:").toIntOrNull()
+        AlertDialog(
+            onDismissRequest = { showChannels = false },
+            title = { Text("Canales") },
+            text = {
+                LazyColumn {
+                    items(zapChannels, key = { it.streamId }) { ch ->
+                        val selected = ch.streamId == currentId
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .safeClickable(
+                                    onClick = {
+                                        zapTo(ch)
+                                        showChannels = false
+                                    },
+                                )
+                                .padding(vertical = 6.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (ch.num > 0) {
+                                Text(
+                                    ch.num.toString(),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.width(44.dp),
+                                )
+                            }
+                            AsyncImage(
+                                model = ch.icon.ifBlank { null },
+                                contentDescription = ch.name,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.Black.copy(alpha = 0.2f)),
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                ch.name,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = if (selected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showChannels = false }) { Text("Cerrar") } },
+        )
     }
 }

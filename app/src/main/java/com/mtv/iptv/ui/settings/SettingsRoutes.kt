@@ -14,6 +14,7 @@ object SettingsRoutes {
     const val DOWNLOADS_PREFS = "settings/downloads_prefs"
     const val NETWORK = "settings/network"
     const val PLAYBACK = "settings/playback"
+    const val SUBTITLES = "settings/subtitles"
     const val APPEARANCE = "settings/appearance"
     const val ABOUT = "settings/about"
 }

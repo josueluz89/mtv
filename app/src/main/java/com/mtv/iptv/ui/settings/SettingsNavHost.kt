@@ -57,6 +57,9 @@ fun SettingsNavHost(
         composable(SettingsRoutes.PLAYBACK) {
             PlaybackScreen(onBack = { navController.popBackStack() })
         }
+        composable(SettingsRoutes.SUBTITLES) {
+            SubtitlesScreen(onBack = { navController.popBackStack() })
+        }
         composable(SettingsRoutes.APPEARANCE) {
             AppearanceScreen(onBack = { navController.popBackStack() })
         }

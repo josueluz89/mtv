@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
+import android.util.TypedValue
 import android.view.Gravity
 import android.widget.FrameLayout
 import android.widget.TextView
@@ -15,10 +16,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.mtv.iptv.di.LocalAppContainer
+import com.mtv.iptv.player.ZapChannel
 import com.mtv.iptv.ui.player.PlayerScreen
 import com.mtv.iptv.ui.theme.MtvTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -33,15 +37,49 @@ class PlayerActivity : ComponentActivity() {
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_MEDIA_KEY = "extra_media_key"
         const val EXTRA_IMAGE_URL = "extra_image_url"
+        const val EXTRA_ZAP_IDS = "extra_zap_ids"
+        const val EXTRA_ZAP_NAMES = "extra_zap_names"
+        const val EXTRA_ZAP_NUMS = "extra_zap_nums"
+        const val EXTRA_ZAP_ICONS = "extra_zap_icons"
 
-        fun start(context: Context, url: String, title: String, mediaKey: String, imageUrl: String = "") {
+        fun start(
+            context: Context,
+            url: String,
+            title: String,
+            mediaKey: String,
+            imageUrl: String = "",
+            zap: List<ZapChannel> = emptyList(),
+        ) {
             val intent = Intent(context, PlayerActivity::class.java).apply {
                 putExtra(EXTRA_URL, url)
                 putExtra(EXTRA_TITLE, title)
                 putExtra(EXTRA_MEDIA_KEY, mediaKey)
                 putExtra(EXTRA_IMAGE_URL, imageUrl)
+                if (zap.isNotEmpty()) {
+                    putExtra(EXTRA_ZAP_IDS, zap.map { it.streamId }.toIntArray())
+                    putExtra(EXTRA_ZAP_NAMES, zap.map { it.name }.toTypedArray())
+                    putExtra(EXTRA_ZAP_NUMS, zap.map { it.num }.toIntArray())
+                    putExtra(EXTRA_ZAP_ICONS, zap.map { it.icon }.toTypedArray())
+                }
             }
             context.startActivity(intent)
+        }
+
+        /** Reconstruye la lista de zapping desde los extras del intent. */
+        fun zapFromIntent(intent: Intent): List<ZapChannel> {
+            val ids = intent.getIntArrayExtra(EXTRA_ZAP_IDS) ?: return emptyList()
+            val names = intent.getStringArrayExtra(EXTRA_ZAP_NAMES) ?: return emptyList()
+            val nums = intent.getIntArrayExtra(EXTRA_ZAP_NUMS) ?: return emptyList()
+            val icons = intent.getStringArrayExtra(EXTRA_ZAP_ICONS) ?: emptyArray()
+            val n = minOf(ids.size, names.size, nums.size)
+            return List(n) { i ->
+                ZapChannel(
+                    streamId = ids[i],
+                    name = names[i].orEmpty(),
+                    num = nums[i],
+                    icon = icons.getOrNull(i).orEmpty(),
+                )
+            }
         }
     }
 
@@ -75,6 +113,43 @@ class PlayerActivity : ComponentActivity() {
                 controllerShowTimeoutMs = 4000
             }
             playerView.player = manager.player
+            // Estilo de subtítulos (Ajustes → Subtítulos) también en la rama TV.
+            lifecycleScope.launch {
+                try {
+                    val prefs = container.userPrefs
+                    val dip = when (prefs.subtitleSize.first()) {
+                        "S" -> 14f
+                        "L" -> 24f
+                        else -> 18f
+                    }
+                    val fg = when (prefs.subtitleColor.first()) {
+                        "amarillo" -> Color.YELLOW
+                        "cian" -> Color.CYAN
+                        "verde" -> Color.GREEN
+                        else -> Color.WHITE
+                    }
+                    val style = when (prefs.subtitleBackground.first()) {
+                        "solido" -> CaptionStyleCompat(
+                            fg, Color.BLACK, Color.TRANSPARENT,
+                            CaptionStyleCompat.EDGE_TYPE_NONE, Color.BLACK, null,
+                        )
+                        "ninguno" -> CaptionStyleCompat(
+                            fg, Color.TRANSPARENT, Color.TRANSPARENT,
+                            CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW, Color.BLACK, null,
+                        )
+                        else -> CaptionStyleCompat(
+                            fg, 0x99000000.toInt(), Color.TRANSPARENT,
+                            CaptionStyleCompat.EDGE_TYPE_NONE, Color.BLACK, null,
+                        )
+                    }
+                    playerView.subtitleView?.let { sv ->
+                        sv.setFixedTextSize(TypedValue.COMPLEX_UNIT_DIP, dip)
+                        sv.setApplyEmbeddedStyles(false)
+                        sv.setStyle(style)
+                    }
+                } catch (_: Exception) {
+                }
+            }
             frame.addView(
                 playerView,
                 FrameLayout.LayoutParams(
@@ -117,6 +192,8 @@ class PlayerActivity : ComponentActivity() {
                 manager.play(url, mediaKey, title, imageUrl, startAt)
             }
         } else {
+            // Rama móvil: la lista de zapping solo se usa en PlayerScreen.
+            val zapChannels = zapFromIntent(intent)
             setContent {
                 val theme by container.userPrefs.theme.collectAsState(initial = "sistema")
                 CompositionLocalProvider(LocalAppContainer provides container) {
@@ -127,6 +204,7 @@ class PlayerActivity : ComponentActivity() {
                             mediaKey = mediaKey,
                             imageUrl = imageUrl,
                             onBack = { finish() },
+                            zapChannels = zapChannels,
                         )
                     }
                 }

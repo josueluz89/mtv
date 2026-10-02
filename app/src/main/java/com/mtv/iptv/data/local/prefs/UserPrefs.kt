@@ -66,6 +66,19 @@ class UserPrefs(private val context: Context) {
         context.dataStore.edit { it[sortSeriesKey] = value }
     }
 
+    private val liveTvOrderKey = stringPreferencesKey("live_tv_order")
+
+    /**
+     * Orden de los canales en TV en vivo: "proveedor" (por número de canal
+     * del proveedor) | "alfabetico". Default "proveedor".
+     */
+    val liveTvOrder: Flow<String> =
+        context.dataStore.data.map { it[liveTvOrderKey] ?: "proveedor" }
+
+    suspend fun setLiveTvOrder(value: String) {
+        context.dataStore.edit { it[liveTvOrderKey] = value }
+    }
+
     // ---------------- Reproducción ----------------
 
     private val defaultSpeedKey = floatPreferencesKey("default_speed")
@@ -111,6 +124,40 @@ class UserPrefs(private val context: Context) {
 
     suspend fun setPlayerMode(value: String) {
         context.dataStore.edit { it[playerModeKey] = value }
+    }
+
+    private val subtitleSizeKey = stringPreferencesKey("subtitle_size")
+
+    /** Tamaño del texto de subtítulos ("S" | "M" | "L"). Default "M". */
+    val subtitleSize: Flow<String> =
+        context.dataStore.data.map { it[subtitleSizeKey] ?: "M" }
+
+    suspend fun setSubtitleSize(value: String) {
+        context.dataStore.edit { it[subtitleSizeKey] = value }
+    }
+
+    private val subtitleBackgroundKey = stringPreferencesKey("subtitle_background")
+
+    /**
+     * Fondo de los subtítulos: "solido" (recuadro negro) | "semi"
+     * (semitransparente) | "ninguno" (sin recuadro, con sombra).
+     * Default "semi".
+     */
+    val subtitleBackground: Flow<String> =
+        context.dataStore.data.map { it[subtitleBackgroundKey] ?: "semi" }
+
+    suspend fun setSubtitleBackground(value: String) {
+        context.dataStore.edit { it[subtitleBackgroundKey] = value }
+    }
+
+    private val subtitleColorKey = stringPreferencesKey("subtitle_color")
+
+    /** Color del texto de subtítulos: "blanco" | "amarillo" | "cian" | "verde". Default "blanco". */
+    val subtitleColor: Flow<String> =
+        context.dataStore.data.map { it[subtitleColorKey] ?: "blanco" }
+
+    suspend fun setSubtitleColor(value: String) {
+        context.dataStore.edit { it[subtitleColorKey] = value }
     }
 
     // ---------------- Descargas ----------------

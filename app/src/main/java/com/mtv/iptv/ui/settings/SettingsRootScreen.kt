@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.List
@@ -72,6 +73,12 @@ fun SettingsRootScreen(onGroup: (String) -> Unit) {
             "Reproducción",
             "Velocidad, autoplay, PiP",
             Icons.Default.PlayCircle,
+        ),
+        SettingsGroup(
+            SettingsRoutes.SUBTITLES,
+            "Subtítulos",
+            "Tamaño, fondo y color",
+            Icons.Default.ClosedCaption,
         ),
         SettingsGroup(
             SettingsRoutes.APPEARANCE,

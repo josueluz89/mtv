@@ -1,10 +1,12 @@
 package com.mtv.iptv.ui.player
 
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,7 +47,12 @@ fun AudioTrackDialog(manager: PlayerManager, onDismiss: () -> Unit) {
 }
 
 @Composable
-fun SubtitleTrackDialog(manager: PlayerManager, onDismiss: () -> Unit) {
+fun SubtitleTrackDialog(
+    manager: PlayerManager,
+    subtitleSize: String,
+    onSizeSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val options = manager.textTracks()
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -66,6 +73,34 @@ fun SubtitleTrackDialog(manager: PlayerManager, onDismiss: () -> Unit) {
                 }
                 if (options.isEmpty()) {
                     item { Text("Este video no trae subtítulos.", modifier = Modifier.padding(12.dp)) }
+                }
+                item {
+                    Text(
+                        "Tamaño del texto",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(start = 12.dp, top = 16.dp, bottom = 4.dp),
+                    )
+                }
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp),
+                    ) {
+                        listOf("S", "M", "L").forEach { size ->
+                            val label = when (size) {
+                                "S" -> "Pequeño"
+                                "L" -> "Grande"
+                                else -> "Mediano"
+                            }
+                            FilterChip(
+                                selected = subtitleSize == size,
+                                onClick = { onSizeSelect(size) },
+                                label = { Text(label) },
+                                modifier = Modifier.padding(end = 8.dp),
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -141,6 +176,17 @@ fun StreamInfoDialog(manager: PlayerManager, onDismiss: () -> Unit) {
         vf.bitrate >= 1_000_000 -> String.format(Locale.US, "%.1f Mbps", vf.bitrate / 1_000_000f)
         else -> "${vf.bitrate / 1000} kbps"
     }
+    // Datos técnicos de audio (lo que ExoPlayer expone de verdad).
+    val af = manager.player.audioFormat
+    val audioCodec = af?.sampleMimeType
+        ?.substringAfter("/")
+        ?.uppercase(Locale.US)
+        ?.takeIf { it.isNotBlank() } ?: "—"
+    val audioChannels = if (af != null && af.channelCount > 0) {
+        "${af.channelCount} canales"
+    } else {
+        "—"
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Información del stream") },
@@ -150,6 +196,15 @@ fun StreamInfoDialog(manager: PlayerManager, onDismiss: () -> Unit) {
                 item { Text("Códec: $codec", modifier = Modifier.padding(12.dp)) }
                 item { Text("Cuadros por segundo: $fps", modifier = Modifier.padding(12.dp)) }
                 item { Text("Bitrate: $bitrate", modifier = Modifier.padding(12.dp)) }
+                item {
+                    Text(
+                        "Audio",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(start = 12.dp, top = 8.dp),
+                    )
+                }
+                item { Text("Códec de audio: $audioCodec", modifier = Modifier.padding(12.dp)) }
+                item { Text("Canales de audio: $audioChannels", modifier = Modifier.padding(12.dp)) }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },
