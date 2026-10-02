@@ -74,8 +74,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import java.io.File
 import java.text.NumberFormat
-import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Locale
 
 /**
@@ -83,7 +81,7 @@ import java.util.Locale
  * queda SIN su controlador (useController = false) y todo vive aquí —
  * título con badges de calidad (resolución, fps, audio), barra de progreso
  * con tiempo actual/total, play/pausa, adelantar/retroceder, Audio,
- * Subtítulos y una segunda fila con Canales, Guía, PiP, Aspecto, Sleep,
+ * Subtítulos y una segunda fila con Canales, PiP, Aspecto, Sleep,
  * Favorito, Externo y Opciones.
  *
  * Todo es operable con D-pad: OK muestra/oculta los controles; con los
@@ -124,7 +122,6 @@ fun TvPlayerOverlay(
     var showSubs by remember { mutableStateOf(false) }
     var showSubSearch by remember { mutableStateOf(false) }
     var showChannels by remember { mutableStateOf(false) }
-    var showGuide by remember { mutableStateOf(false) }
     var showSleep by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
 
@@ -162,7 +159,7 @@ fun TvPlayerOverlay(
     }
 
     val anyDialog = showAudio || showSubs || showSubSearch ||
-        showChannels || showGuide || showSleep || showOptions
+        showChannels || showSleep || showOptions
     // Auto-ocultar: 4 s sin interacción (con un diálogo abierto no se oculta).
     LaunchedEffect(controlsVisible, interactionTick, anyDialog) {
         if (controlsVisible && !anyDialog) {
@@ -410,7 +407,6 @@ fun TvPlayerOverlay(
                 ) {
                     if (isLive) {
                         TvPlayerButton(label = "Canales", onClick = { showChannels = true })
-                        TvPlayerButton(label = "Guía", onClick = { showGuide = true })
                     }
                     if (pipEnabled) {
                         TvPlayerButton(label = "PiP", onClick = { onPipClick() })
@@ -491,12 +487,6 @@ fun TvPlayerOverlay(
                 zapTo(channel)
             },
             onDismiss = { showChannels = false },
-        )
-    }
-    if (showGuide) {
-        TvGuideDialog(
-            channels = zapChannels,
-            onDismiss = { showGuide = false },
         )
     }
     if (showSleep) {
@@ -876,81 +866,6 @@ private fun TvChannelListDialog(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },
-    )
-}
-
-/**
- * Guía de programación estilo TiviMate. Sin EPG real: pestañas Hoy + 3 días
- * y celdas "Sin información" por canal.
- */
-@Composable
-private fun TvGuideDialog(
-    channels: List<ZapChannel>,
-    onDismiss: () -> Unit,
-) {
-    val days = remember {
-        val base = Calendar.getInstance()
-        List(4) { i ->
-            val c = (base.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, i) }
-            if (i == 0) {
-                "Hoy"
-            } else {
-                SimpleDateFormat("EEEE d", Locale("es"))
-                    .format(c.time)
-                    .replaceFirstChar { it.uppercase() }
-            }
-        }
-    }
-    var tab by remember { mutableStateOf(0) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Guía") },
-        text = {
-            Column {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(bottom = 12.dp),
-                ) {
-                    days.forEachIndexed { i, label ->
-                        FilterChip(
-                            selected = tab == i,
-                            onClick = { tab = i },
-                            label = { Text(label) },
-                        )
-                    }
-                }
-                if (channels.isEmpty()) {
-                    Text("No hay canales en la lista.", modifier = Modifier.padding(12.dp))
-                } else {
-                    LazyColumn {
-                        items(channels, key = { it.streamId }) { channel ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp, horizontal = 4.dp),
-                            ) {
-                                Text(
-                                    channel.name,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    "Sin información",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MtvOnBg,
-                                )
-                            }
                         }
                     }
                 }
