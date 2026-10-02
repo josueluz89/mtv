@@ -118,11 +118,6 @@ fun SettingsContent(
         usedBytes = calcUsedSpace(downloadManager)
     }
 
-    LaunchedEffect(Unit) {
-        refreshUsedSpace()
-        refreshUsers()
-    }
-
     fun showMessage(msg: String) = scope.launch { snackbarHostState.showSnackbar(msg) }
 
     // ---------------- Multi-usuario ----------------
@@ -208,6 +203,11 @@ fun SettingsContent(
         } finally {
             speedTestRunning = false
         }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshUsedSpace()
+        refreshUsers()
     }
 
     fun clearCache() = scope.launch {
