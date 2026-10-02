@@ -130,6 +130,7 @@ class PlayerManager(
         val baseFactory: DefaultRenderersFactory =
             if (config.videoDecoder == "sw") {
                 object : DefaultRenderersFactory(appCtx) {
+                    // Firma Media3 1.9.0: retorna Unit y agrega los renderers a `out`.
                     override fun buildVideoRenderers(
                         context: Context,
                         extensionRendererMode: Int,
@@ -138,8 +139,9 @@ class PlayerManager(
                         eventHandler: Handler,
                         eventListener: VideoRendererEventListener,
                         allowedVideoJoiningTimeMs: Long,
-                    ): Array<Renderer> {
-                        return super.buildVideoRenderers(
+                        out: ArrayList<Renderer>,
+                    ) {
+                        super.buildVideoRenderers(
                             context,
                             extensionRendererMode,
                             softwareSelector,
@@ -147,6 +149,7 @@ class PlayerManager(
                             eventHandler,
                             eventListener,
                             allowedVideoJoiningTimeMs,
+                            out,
                         )
                     }
                 }
