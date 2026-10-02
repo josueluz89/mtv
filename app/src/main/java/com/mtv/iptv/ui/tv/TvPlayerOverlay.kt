@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -48,9 +49,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -80,14 +82,16 @@ import java.util.Locale
 /**
  * Controlador del reproductor en TV, estilo TiviMate: el PlayerView nativo
  * queda SIN su controlador (useController = false) y todo vive aquí —
- * título con badges de calidad (resolución, fps, audio), barra de progreso
- * con tiempo actual/total, play/pausa, adelantar/retroceder, Audio,
- * Subtítulos y una segunda fila con Canales, PiP, Aspecto, Sleep,
- * Favorito, Externo y Opciones.
+ * hub de info del stream estilo Masters TV (título + tipo de stream +
+ * badges con resolución, FPS, códecs y bitrate leídos de ExoPlayer),
+ * línea de tiempo con tiempo actual/total (solo VOD), fila de transporte
+ * (∓10 s, play/pausa) y fila de opciones debajo (Audio, Subtítulos,
+ * Canales, PiP, Aspecto, Sleep, Favorito, Externo, Opciones).
  *
  * Todo es operable con D-pad: OK muestra/oculta los controles; con los
  * controles visibles el foco arranca en play/pausa, izquierda/derecha
- * navega entre botones y sobre la barra de progreso salta ∓10 s.
+ * navega entre botones, arriba/abajo salta entre filas por anclas de foco
+ * explícitas, y sobre la barra de progreso salta ∓10 s.
  *
  * El ExoPlayer puede reconstruirse en caliente (PlayerManager.playerEpoch)
  * cuando cambian los ajustes de decodificación: el sondeo lee
@@ -135,26 +139,21 @@ fun TvPlayerOverlay(
     val pipEnabled by container.userPrefs.pipEnabled.collectAsState(initial = true)
     val aspectPref by container.userPrefs.aspectRatio.collectAsState(initial = "fit")
 
-    // Posición/duración/estado/formatos: se sondea 2 veces por segundo
-    // leyendo SIEMPRE la instancia vigente del player.
+    // Posición/duración/estado/info del stream: se sondea 2 veces por
+    // segundo leyendo SIEMPRE la instancia vigente del player. hudInfo
+    // concentra toda la info técnica (ver collectStreamHudInfo); si un dato
+    // no existe, no se muestra (no se inventan valores).
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
     var playing by remember { mutableStateOf(true) }
-    var videoW by remember { mutableStateOf(0) }
-    var videoH by remember { mutableStateOf(0) }
-    var videoFps by remember { mutableStateOf(0f) }
-    var audioBadge by remember { mutableStateOf("") }
+    var hudInfo by remember { mutableStateOf<StreamHudInfo?>(null) }
     LaunchedEffect(epoch) {
         while (true) {
             val p = manager.player
             positionMs = p.currentPosition.coerceAtLeast(0L)
             durationMs = p.duration.let { if (it > 0) it else 0L }
             playing = p.isPlaying
-            val vf = p.videoFormat
-            videoW = vf?.width ?: 0
-            videoH = vf?.height ?: 0
-            videoFps = vf?.frameRate ?: 0f
-            audioBadge = selectedAudioBadge(p)
+            hudInfo = collectStreamHudInfo(p, isLive)
             delay(500)
         }
     }
@@ -297,42 +296,16 @@ fun TvPlayerOverlay(
                 }
             },
     ) {
-        // Barra de info superior: título + badges de calidad.
+        // Hub de info del stream (estilo Masters TV): título + tipo de
+        // stream + badges con toda la info técnica. No es enfocable.
         if (controlsVisible && currentTitle.isNotBlank()) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            StreamInfoHub(
+                title = currentTitle,
+                info = hudInfo,
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .fillMaxWidth(0.75f)
-                    .padding(28.dp)
-                    .background(Color(0x99000000), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-            ) {
-                Text(
-                    currentTitle,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (isLive) {
-                    Spacer(Modifier.width(12.dp))
-                    TvQualityBadge("EN VIVO", Color(0xFFE02020))
-                }
-                if (videoW > 0 && videoH > 0) {
-                    Spacer(Modifier.width(12.dp))
-                    TvQualityBadge("${videoW}x${videoH}")
-                }
-                if (videoFps > 0f) {
-                    Spacer(Modifier.width(8.dp))
-                    TvQualityBadge("%.0f FPS".format(videoFps))
-                }
-                if (audioBadge.isNotBlank()) {
-                    Spacer(Modifier.width(8.dp))
-                    TvQualityBadge(audioBadge)
-                }
-            }
+                    .padding(28.dp),
+            )
         }
         if (controlsVisible) {
             // Navegador compacto de controles: línea de tiempo (solo VOD) →
@@ -344,9 +317,9 @@ fun TvPlayerOverlay(
 
             // Anclas de foco para el primer botón de cada fila: encadenan el
             // D-pad (↓ baja de fila, ↑ sube) sin depender de la geometría.
-            fun Modifier.transportAnchor(up: FocusRequester?): Modifier =
+            fun Modifier.transportAnchor(): Modifier =
                 focusRequester(transportFr).focusProperties {
-                    if (up != null) this.up = up
+                    if (!isLive) up = timelineFr
                     down = optionsFr
                 }
 
@@ -393,8 +366,7 @@ fun TvPlayerOverlay(
                     }
                     Spacer(Modifier.height(8.dp))
                 }
-                // 2. Fila de transporte: ∓10 s, play/pausa (foco inicial),
-                //    Audio, Subtítulos.
+                // 2. Fila de transporte: ∓10 s + play/pausa (foco inicial).
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
@@ -404,7 +376,7 @@ fun TvPlayerOverlay(
                         TvPlayerButton(
                             label = "−10 s",
                             onClick = { seekBy(-10_000L) },
-                            modifier = Modifier.transportAnchor(up = timelineFr),
+                            modifier = Modifier.transportAnchor(),
                         )
                     }
                     Button(
@@ -415,14 +387,7 @@ fun TvPlayerOverlay(
                         },
                         modifier = Modifier
                             .focusRequester(playFocus)
-                            .then(
-                                if (isLive) {
-                                    // En vivo el play/pausa es el primero de la fila.
-                                    Modifier.transportAnchor(up = null)
-                                } else {
-                                    Modifier.focusProperties { down = optionsFr }
-                                },
-                            ),
+                            .transportAnchor(),
                     ) {
                         Icon(
                             if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -430,37 +395,33 @@ fun TvPlayerOverlay(
                         )
                     }
                     if (!isLive) {
-                        TvPlayerButton(label = "+10 s", onClick = { seekBy(10_000L) })
+                        TvPlayerButton(
+                            label = "+10 s",
+                            onClick = { seekBy(10_000L) },
+                            modifier = Modifier.transportAnchor(),
+                        )
                     }
-                    TvPlayerButton(label = "Audio", onClick = { showAudio = true })
-                    TvPlayerButton(label = "Subtítulos", onClick = { showSubs = true })
                 }
                 Spacer(Modifier.height(8.dp))
-                // 3. Fila de opciones.
+                // 3. Fila de opciones (debajo de la línea de tiempo).
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    TvPlayerButton(
+                        label = "Audio",
+                        onClick = { showAudio = true },
+                        modifier = Modifier.optionsAnchor(),
+                    )
+                    TvPlayerButton(label = "Subtítulos", onClick = { showSubs = true })
                     if (isLive) {
-                        TvPlayerButton(
-                            label = "Canales",
-                            onClick = { showChannels = true },
-                            modifier = Modifier.optionsAnchor(),
-                        )
+                        TvPlayerButton(label = "Canales", onClick = { showChannels = true })
                     }
                     if (pipEnabled) {
-                        TvPlayerButton(
-                            label = "PiP",
-                            onClick = { onPipClick() },
-                            modifier = if (!isLive) Modifier.optionsAnchor() else Modifier,
-                        )
+                        TvPlayerButton(label = "PiP", onClick = { onPipClick() })
                     }
-                    TvPlayerButton(
-                        label = "Aspecto: $aspectLabel",
-                        onClick = { cycleAspect() },
-                        modifier = if (!isLive && !pipEnabled) Modifier.optionsAnchor() else Modifier,
-                    )
+                    TvPlayerButton(label = "Aspecto: $aspectLabel", onClick = { cycleAspect() })
                     TvPlayerButton(
                         label = if (sleepMinutes > 0) "Sleep ${sleepMinutes}m" else "Sleep",
                         onClick = { showSleep = true },
@@ -553,16 +514,183 @@ fun TvPlayerOverlay(
     }
 }
 
-/** Etiqueta pequeña de calidad (p. ej. "1920x1080"), como en la referencia. */
+// ---------------- Hub de info del stream (estilo Masters TV) ----------------
+
+/**
+ * Toda la info técnica del stream vigente, leída de ExoPlayer
+ * (`player.videoFormat` y `player.audioFormat`). Null = el dato no existe
+ * y no se muestra.
+ */
+private data class StreamHudInfo(
+    val streamType: String, // "EN VIVO" | "VOD"
+    val qualityLabel: String?, // "4K" | "FHD" | "HD" | "SD"
+    val resolution: String?, // "1920×1080"
+    val fps: String?, // "30 FPS" | "29.97 FPS"
+    val videoCodec: String?, // "H.264"
+    val audio: String?, // "AAC · STEREO"
+    val bitrate: String?, // "12.4 Mbps"
+)
+
+/** Lee los formatos vigentes del player y arma el modelo del hub. */
+private fun collectStreamHudInfo(p: ExoPlayer, isLive: Boolean): StreamHudInfo {
+    val vf = p.videoFormat
+    val af = p.audioFormat
+    val w = vf?.width ?: 0
+    val h = vf?.height ?: 0
+    val fps = vf?.frameRate ?: 0f
+    val videoBitrate = vf?.bitrate ?: 0
+    val audioBitrate = af?.bitrate ?: 0
+    return StreamHudInfo(
+        streamType = if (isLive) "EN VIVO" else "VOD",
+        qualityLabel = if (w > 0 && h > 0) qualityLabelFor(w, h) else null,
+        resolution = if (w > 0 && h > 0) "$w×$h" else null,
+        fps = if (fps > 0f) formatFps(fps) else null,
+        videoCodec = videoCodecLabel(vf?.sampleMimeType),
+        audio = buildAudioBadge(af),
+        bitrate = when {
+            videoBitrate > 0 -> formatBitrate(videoBitrate)
+            audioBitrate > 0 -> formatBitrate(audioBitrate)
+            else -> null
+        },
+    )
+}
+
+/** Panel superior: título + badge de tipo + badges técnicos (estilo TiviMate). */
 @Composable
-private fun TvQualityBadge(text: String, bg: Color = Color(0x66FFFFFF)) {
+private fun StreamInfoHub(
+    title: String,
+    info: StreamHudInfo?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth(0.78f)
+            .background(Color(0x99000000), RoundedCornerShape(12.dp))
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (info != null) {
+                Spacer(Modifier.width(12.dp))
+                HudBadge(info.streamType, accent = info.streamType == "EN VIVO")
+            }
+        }
+        val badges = listOfNotNull(
+            info?.qualityLabel,
+            info?.resolution,
+            info?.fps,
+            info?.videoCodec,
+            info?.audio,
+            info?.bitrate,
+        )
+        if (badges.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                badges.forEach { HudBadge(it) }
+            }
+        }
+    }
+}
+
+/** Pastilla de badge: fondo oscuro, texto blanco en negrita (como TiviMate). */
+@Composable
+private fun HudBadge(text: String, accent: Boolean = false) {
     Box(
         modifier = Modifier
-            .background(bg, RoundedCornerShape(4.dp))
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+            .background(
+                if (accent) MtvRed else Color(0xFF262626),
+                RoundedCornerShape(6.dp),
+            )
+            .padding(horizontal = 10.dp, vertical = 5.dp),
     ) {
-        Text(text, style = MaterialTheme.typography.bodySmall, color = Color.White)
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            maxLines = 1,
+        )
     }
+}
+
+private fun qualityLabelFor(width: Int, height: Int): String {
+    val max = maxOf(width, height)
+    return when {
+        max >= 3600 -> "4K"
+        max >= 1700 -> "FHD"
+        max >= 1100 -> "HD"
+        else -> "SD"
+    }
+}
+
+private fun formatFps(fps: Float): String {
+    val rounded = fps.roundToInt()
+    return if (kotlin.math.abs(fps - rounded) < 0.01f) {
+        "$rounded FPS"
+    } else {
+        "%.2f FPS".format(fps)
+    }
+}
+
+private fun formatBitrate(bps: Int): String = when {
+    bps >= 1_000_000 -> "%.1f Mbps".format(bps / 1_000_000.0)
+    bps >= 1_000 -> "%.0f kbps".format(bps / 1_000.0)
+    else -> "$bps bps"
+}
+
+private fun videoCodecLabel(mime: String?): String? = when {
+    mime == null -> null
+    mime.contains("avc") -> "H.264"
+    mime.contains("hevc") -> "H.265"
+    mime.contains("av01") -> "AV1"
+    mime.contains("vp09") || mime.contains("vp9") -> "VP9"
+    mime.contains("vp8") -> "VP8"
+    mime.contains("mp4v") -> "MPEG-4"
+    mime.contains("mpeg2") -> "MPEG-2"
+    mime.contains("mpeg") -> "MPEG"
+    else -> mime.substringAfterLast('/').uppercase().take(10).ifBlank { null }
+}
+
+/** "AAC · STEREO" a partir del formato de audio vigente (null si no hay). */
+private fun buildAudioBadge(af: Format?): String? {
+    if (af == null) return null
+    val codec = audioCodecLabel(af.sampleMimeType) ?: return null
+    val channels = audioChannelsLabel(af.channelCount)
+    return if (channels.isNotBlank()) "$codec · $channels" else codec
+}
+
+private fun audioCodecLabel(mime: String?): String? = when {
+    mime == null -> null
+    mime.contains("ec-3") || mime == "audio/eac3" -> "E-AC3"
+    mime.contains("ac-3") || mime == "audio/ac3" -> "AC3"
+    mime.contains("truehd") -> "TrueHD"
+    mime.contains("dts") -> "DTS"
+    mime.contains("mp4a") -> "AAC"
+    mime.contains("opus") -> "Opus"
+    mime.contains("vorbis") -> "Vorbis"
+    mime.contains("flac") -> "FLAC"
+    mime.contains("mpeg") -> "MP3"
+    mime.contains("pcm") || mime.contains("raw") -> "PCM"
+    else -> mime.substringAfterLast('/').uppercase().take(10).ifBlank { null }
+}
+
+private fun audioChannelsLabel(channels: Int): String = when {
+    channels >= 8 -> "7.1"
+    channels >= 6 -> "5.1"
+    channels == 2 -> "STEREO"
+    channels == 1 -> "MONO"
+    channels > 0 -> "$channels CH"
+    else -> ""
 }
 
 /** Botón de texto del controlador (foco visible con D-pad). */
@@ -573,7 +701,13 @@ private fun TvPlayerButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Button(onClick = onClick, modifier = modifier) { Text(label) }
+    // Padding compacto para que los 9 botones de la fila de opciones quepan
+    // sin cortarse también en pantallas 720p.
+    Button(
+        onClick = onClick,
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+    ) { Text(label) }
 }
 
 /**
@@ -634,45 +768,6 @@ private fun formatPlayerTime(ms: Long): String {
     val m = (totalSec % 3600) / 60
     val s = totalSec % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
-}
-
-/** "AAC · 5.1" a partir de la pista de audio seleccionada ("" si no hay). */
-private fun selectedAudioBadge(p: ExoPlayer): String {
-    for (group in p.currentTracks.groups) {
-        if (group.type != C.TRACK_TYPE_AUDIO) continue
-        for (i in 0 until group.length) {
-            if (!group.isTrackSelected(i)) continue
-            val f = group.getTrackFormat(i)
-            val codec = audioCodecLabel(f.sampleMimeType)
-            val ch = audioChannelsLabel(f.channelCount)
-            return if (ch.isNotBlank()) "$codec · $ch" else codec
-        }
-    }
-    return ""
-}
-
-private fun audioCodecLabel(mime: String?): String = when {
-    mime == null -> "Audio"
-    mime.contains("ec-3") || mime == "audio/eac3" -> "E-AC3"
-    mime.contains("ac-3") || mime == "audio/ac3" -> "AC3"
-    mime.contains("truehd") -> "TrueHD"
-    mime.contains("dts") -> "DTS"
-    mime.contains("mp4a") -> "AAC"
-    mime.contains("opus") -> "Opus"
-    mime.contains("vorbis") -> "Vorbis"
-    mime.contains("flac") -> "FLAC"
-    mime.contains("mpeg") -> "MP3"
-    mime.contains("pcm") || mime.contains("raw") -> "PCM"
-    else -> mime.substringAfterLast('/').uppercase().take(8)
-}
-
-private fun audioChannelsLabel(channels: Int): String = when {
-    channels >= 8 -> "7.1"
-    channels >= 6 -> "5.1"
-    channels == 2 -> "STEREO"
-    channels == 1 -> "MONO"
-    channels > 0 -> "$channels CH"
-    else -> ""
 }
 
 // ---------------- Diálogos con foco visible (D-pad) ----------------
