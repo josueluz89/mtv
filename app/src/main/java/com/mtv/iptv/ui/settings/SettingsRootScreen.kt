@@ -10,11 +10,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
@@ -34,10 +37,47 @@ private data class SettingsGroup(
 /**
  * Raíz de Ajustes: lista de grupos. Cada grupo abre su pantalla secundaria.
  * Comparte la lógica v1.1, ahora organizada jerárquicamente.
+ * Orden estilo TiviMate: primero lo general, luego el contenido.
  */
 @Composable
 fun SettingsRootScreen(onGroup: (String) -> Unit) {
     val groups = listOf(
+        SettingsGroup(
+            SettingsRoutes.GENERAL,
+            "General",
+            "Arranque, PiP, User-Agent, respaldo",
+            Icons.Default.Settings,
+        ),
+        SettingsGroup(
+            SettingsRoutes.PLAYLISTS,
+            "Listas de reproducción",
+            "Servidores Xtream",
+            Icons.Default.List,
+        ),
+        SettingsGroup(
+            SettingsRoutes.APPEARANCE,
+            "Apariencia",
+            "Tema, idioma y orden del catálogo",
+            Icons.Default.Palette,
+        ),
+        SettingsGroup(
+            SettingsRoutes.PLAYBACK,
+            "Reproducción",
+            "Velocidad, autoplay, PiP",
+            Icons.Default.PlayCircle,
+        ),
+        SettingsGroup(
+            SettingsRoutes.REMOTE,
+            "Mando a distancia",
+            "Teclas de canal, guía e info",
+            Icons.Default.Gamepad,
+        ),
+        SettingsGroup(
+            SettingsRoutes.PARENTAL,
+            "Control parental",
+            "PIN y secciones bloqueadas",
+            Icons.Default.Lock,
+        ),
         SettingsGroup(
             SettingsRoutes.DATA,
             "Datos y sincronización",
@@ -49,12 +89,6 @@ fun SettingsRootScreen(onGroup: (String) -> Unit) {
             "Usuarios",
             "Cambiar de usuario, agregar o eliminar",
             Icons.Default.AccountCircle,
-        ),
-        SettingsGroup(
-            SettingsRoutes.PLAYLISTS,
-            "Listas de reproducción",
-            "Servidores Xtream",
-            Icons.Default.List,
         ),
         SettingsGroup(
             SettingsRoutes.DOWNLOADS_PREFS,
@@ -69,22 +103,10 @@ fun SettingsRootScreen(onGroup: (String) -> Unit) {
             Icons.Default.Wifi,
         ),
         SettingsGroup(
-            SettingsRoutes.PLAYBACK,
-            "Reproducción",
-            "Velocidad, autoplay, PiP",
-            Icons.Default.PlayCircle,
-        ),
-        SettingsGroup(
             SettingsRoutes.SUBTITLES,
             "Subtítulos",
             "Tamaño, fondo y color",
             Icons.Default.ClosedCaption,
-        ),
-        SettingsGroup(
-            SettingsRoutes.APPEARANCE,
-            "Apariencia",
-            "Tema, idioma y orden del catálogo",
-            Icons.Default.Palette,
         ),
         SettingsGroup(
             SettingsRoutes.ABOUT,
@@ -105,6 +127,13 @@ fun SettingsRootScreen(onGroup: (String) -> Unit) {
                 title = group.title,
                 subtitle = group.subtitle,
                 onClick = { onGroup(group.route) },
+                leading = {
+                    Icon(
+                        group.icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                },
                 trailing = {
                     Icon(
                         Icons.Default.KeyboardArrowRight,

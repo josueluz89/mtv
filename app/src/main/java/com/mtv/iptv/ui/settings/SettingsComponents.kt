@@ -38,6 +38,7 @@ fun SettingsRow(
     title: String,
     subtitle: String?,
     onClick: (() -> Unit)?,
+    leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
@@ -65,6 +66,10 @@ fun SettingsRow(
         modifier = rowModifier,
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        leading?.let {
+            it()
+            Spacer(Modifier.width(16.dp))
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             if (subtitle != null) {

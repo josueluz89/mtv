@@ -28,6 +28,9 @@ fun SettingsNavHost(
         composable(SettingsRoutes.ROOT) {
             SettingsRootScreen(onGroup = { route -> navController.navigate(route) })
         }
+        composable(SettingsRoutes.GENERAL) {
+            GeneralScreen(onBack = { navController.popBackStack() })
+        }
         composable(SettingsRoutes.DATA) {
             DataScreen(onBack = { navController.popBackStack() })
         }
@@ -56,6 +59,12 @@ fun SettingsNavHost(
         }
         composable(SettingsRoutes.PLAYBACK) {
             PlaybackScreen(onBack = { navController.popBackStack() })
+        }
+        composable(SettingsRoutes.REMOTE) {
+            RemoteScreen(onBack = { navController.popBackStack() })
+        }
+        composable(SettingsRoutes.PARENTAL) {
+            ParentalScreen(onBack = { navController.popBackStack() })
         }
         composable(SettingsRoutes.SUBTITLES) {
             SubtitlesScreen(onBack = { navController.popBackStack() })

@@ -513,4 +513,13 @@ class UserPrefs(private val context: Context) {
     suspend fun setKeyInfo(value: Int) {
         context.dataStore.edit { it[keyInfoKey] = value }
     }
+
+    /**
+     * Borra todos los ajustes guardados (Restablecer datos en
+     * Ajustes → General). Los Flow vuelven a emitir sus valores
+     * por defecto.
+     */
+    suspend fun clearAll() {
+        context.dataStore.edit { it.clear() }
+    }
 }

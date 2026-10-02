@@ -26,6 +26,9 @@ interface ServerDao {
 
     @Delete
     suspend fun delete(server: ServerEntity)
+
+    @Query("DELETE FROM servers")
+    suspend fun clear()
 }
 
 @Dao
@@ -44,6 +47,9 @@ interface FavoriteDao {
 
     @Delete
     suspend fun delete(fav: FavoriteEntity)
+
+    @Query("DELETE FROM favorites")
+    suspend fun clear()
 }
 
 @Dao
@@ -59,6 +65,9 @@ interface PlaybackDao {
 
     @Query("DELETE FROM playback WHERE mediaKey = :mediaKey")
     suspend fun deleteByKey(mediaKey: String)
+
+    @Query("DELETE FROM playback")
+    suspend fun clear()
 }
 
 @Dao
