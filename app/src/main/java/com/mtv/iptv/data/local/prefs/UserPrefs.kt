@@ -1,11 +1,13 @@
 package com.mtv.iptv.data.local.prefs
 
 import android.content.Context
+import android.view.KeyEvent
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -297,5 +299,218 @@ class UserPrefs(private val context: Context) {
             it[lastSpeedAtKey] = System.currentTimeMillis()
             it[lastSpeedDnsKey] = dnsLabel
         }
+    }
+
+    // ---------------- Decodificación / reproductor avanzado (v1.9.0) ----------------
+
+    private val videoDecoderKey = stringPreferencesKey("video_decoder")
+
+    /** Decodificador de video: "hw" (hardware) | "sw" (software). Default "hw". */
+    val videoDecoder: Flow<String> = context.dataStore.data.map { it[videoDecoderKey] ?: "hw" }
+
+    suspend fun setVideoDecoder(value: String) {
+        context.dataStore.edit { it[videoDecoderKey] = value }
+    }
+
+    private val audioDecoderKey = stringPreferencesKey("audio_decoder")
+
+    /**
+     * Decodificador de audio: "auto" (hardware + FFmpeg de respaldo) |
+     * "hw" (solo hardware, sin FFmpeg) | "sw" (preferir FFmpeg/software).
+     * Default "auto".
+     */
+    val audioDecoder: Flow<String> = context.dataStore.data.map { it[audioDecoderKey] ?: "auto" }
+
+    suspend fun setAudioDecoder(value: String) {
+        context.dataStore.edit { it[audioDecoderKey] = value }
+    }
+
+    private val bufferSizeKey = stringPreferencesKey("buffer_size")
+
+    /** Tamaño del buffer de reproducción: "pequeno" | "medio" | "grande". Default "medio". */
+    val bufferSize: Flow<String> = context.dataStore.data.map { it[bufferSizeKey] ?: "medio" }
+
+    suspend fun setBufferSize(value: String) {
+        context.dataStore.edit { it[bufferSizeKey] = value }
+    }
+
+    private val afrKey = booleanPreferencesKey("afr_enabled")
+
+    /**
+     * Auto frame rate: intenta ajustar la tasa de refresco de la pantalla
+     * a los fps del video. Default false.
+     */
+    val afrEnabled: Flow<Boolean> = context.dataStore.data.map { it[afrKey] ?: false }
+
+    suspend fun setAfrEnabled(value: Boolean) {
+        context.dataStore.edit { it[afrKey] = value }
+    }
+
+    private val aspectRatioKey = stringPreferencesKey("aspect_ratio")
+
+    /** Aspecto del video: "fit" (ajustar) | "fill" (llenar) | "zoom". Default "fit". */
+    val aspectRatio: Flow<String> = context.dataStore.data.map { it[aspectRatioKey] ?: "fit" }
+
+    suspend fun setAspectRatio(value: String) {
+        context.dataStore.edit { it[aspectRatioKey] = value }
+    }
+
+    private val surroundDefaultKey = booleanPreferencesKey("surround_default")
+
+    /** Elegir pista de audio envolvente por defecto cuando exista. Default false. */
+    val surroundDefault: Flow<Boolean> = context.dataStore.data.map { it[surroundDefaultKey] ?: false }
+
+    suspend fun setSurroundDefault(value: Boolean) {
+        context.dataStore.edit { it[surroundDefaultKey] = value }
+    }
+
+    // ---------------- General (v1.9.0, estilo TiviMate) ----------------
+
+    private val openOnBootKey = booleanPreferencesKey("open_on_boot")
+
+    /** Abrir la app al encender el dispositivo. Default false. */
+    val openOnBoot: Flow<Boolean> = context.dataStore.data.map { it[openOnBootKey] ?: false }
+
+    suspend fun setOpenOnBoot(value: Boolean) {
+        context.dataStore.edit { it[openOnBootKey] = value }
+    }
+
+    private val openLastChannelKey = booleanPreferencesKey("open_last_channel")
+
+    /** Abrir el último canal reproducido al abrir la app. Default false. */
+    val openLastChannel: Flow<Boolean> = context.dataStore.data.map { it[openLastChannelKey] ?: false }
+
+    suspend fun setOpenLastChannel(value: Boolean) {
+        context.dataStore.edit { it[openLastChannelKey] = value }
+    }
+
+    private val lastLiveChannelKey = stringPreferencesKey("last_live_channel")
+
+    /** streamId del último canal en vivo reproducido (para "abrir el último canal"). */
+    val lastLiveChannel: Flow<String> = context.dataStore.data.map { it[lastLiveChannelKey] ?: "" }
+
+    suspend fun setLastLiveChannel(value: String) {
+        context.dataStore.edit { it[lastLiveChannelKey] = value }
+    }
+
+    private val pipOnHomeKey = booleanPreferencesKey("pip_on_home")
+
+    /** Cambiar a picture-in-picture al pulsar Home durante la reproducción. Default false. */
+    val pipOnHome: Flow<Boolean> = context.dataStore.data.map { it[pipOnHomeKey] ?: false }
+
+    suspend fun setPipOnHome(value: Boolean) {
+        context.dataStore.edit { it[pipOnHomeKey] = value }
+    }
+
+    private val confirmExitKey = booleanPreferencesKey("confirm_exit")
+
+    /** Pedir confirmación (pulsar Atrás dos veces) para salir de la app. Default true. */
+    val confirmExit: Flow<Boolean> = context.dataStore.data.map { it[confirmExitKey] ?: true }
+
+    suspend fun setConfirmExit(value: Boolean) {
+        context.dataStore.edit { it[confirmExitKey] = value }
+    }
+
+    private val userAgentKey = stringPreferencesKey("user_agent")
+
+    /** User-Agent personalizado para las peticiones de red. Vacío = el de la app. */
+    val userAgent: Flow<String> = context.dataStore.data.map { it[userAgentKey] ?: "" }
+
+    suspend fun setUserAgent(value: String) {
+        context.dataStore.edit { it[userAgentKey] = value }
+    }
+
+    // ---------------- Ordenación (v1.9.0) ----------------
+
+    private val vodSortModeKey = stringPreferencesKey("vod_sort_mode")
+    private val seriesSortModeKey = stringPreferencesKey("series_sort_mode")
+
+    /**
+     * Modo de orden: "lista" (orden del proveedor) | "nombre" |
+     * "rating" (calificación) | "fecha" (fecha de agregado). Default "lista".
+     */
+    val vodSortMode: Flow<String> = context.dataStore.data.map { it[vodSortModeKey] ?: "lista" }
+    val seriesSortMode: Flow<String> = context.dataStore.data.map { it[seriesSortModeKey] ?: "lista" }
+
+    suspend fun setVodSortMode(value: String) {
+        context.dataStore.edit { it[vodSortModeKey] = value }
+    }
+
+    suspend fun setSeriesSortMode(value: String) {
+        context.dataStore.edit { it[seriesSortModeKey] = value }
+    }
+
+    private val groupByCategoryKey = booleanPreferencesKey("group_by_category")
+
+    /** Agrupar "Todas las películas/shows" por categorías. Default false. */
+    val groupByCategory: Flow<Boolean> = context.dataStore.data.map { it[groupByCategoryKey] ?: false }
+
+    suspend fun setGroupByCategory(value: Boolean) {
+        context.dataStore.edit { it[groupByCategoryKey] = value }
+    }
+
+    // ---------------- Control parental (v1.9.0) ----------------
+
+    private val parentalPinKey = stringPreferencesKey("parental_pin")
+
+    /** PIN de control parental. Vacío = desactivado. */
+    val parentalPin: Flow<String> = context.dataStore.data.map { it[parentalPinKey] ?: "" }
+
+    suspend fun setParentalPin(value: String) {
+        context.dataStore.edit { it[parentalPinKey] = value }
+    }
+
+    private val lockTvKey = booleanPreferencesKey("lock_tv")
+    private val lockMoviesKey = booleanPreferencesKey("lock_movies")
+    private val lockSeriesKey = booleanPreferencesKey("lock_series")
+
+    /** Secciones bloqueadas con PIN. Default false. */
+    val lockTv: Flow<Boolean> = context.dataStore.data.map { it[lockTvKey] ?: false }
+    val lockMovies: Flow<Boolean> = context.dataStore.data.map { it[lockMoviesKey] ?: false }
+    val lockSeries: Flow<Boolean> = context.dataStore.data.map { it[lockSeriesKey] ?: false }
+
+    suspend fun setLockTv(value: Boolean) {
+        context.dataStore.edit { it[lockTvKey] = value }
+    }
+
+    suspend fun setLockMovies(value: Boolean) {
+        context.dataStore.edit { it[lockMoviesKey] = value }
+    }
+
+    suspend fun setLockSeries(value: Boolean) {
+        context.dataStore.edit { it[lockSeriesKey] = value }
+    }
+
+    // ---------------- Mando a distancia (v1.9.0) ----------------
+
+    private val keyChannelUpKey = intPreferencesKey("key_channel_up")
+    private val keyChannelDownKey = intPreferencesKey("key_channel_down")
+    private val keyGuideKey = intPreferencesKey("key_guide")
+    private val keyInfoKey = intPreferencesKey("key_info")
+
+    /** Keycodes configurables del mando (captura de tecla en Ajustes → Mando). */
+    val keyChannelUp: Flow<Int> =
+        context.dataStore.data.map { it[keyChannelUpKey] ?: KeyEvent.KEYCODE_CHANNEL_UP }
+    val keyChannelDown: Flow<Int> =
+        context.dataStore.data.map { it[keyChannelDownKey] ?: KeyEvent.KEYCODE_CHANNEL_DOWN }
+    val keyGuide: Flow<Int> =
+        context.dataStore.data.map { it[keyGuideKey] ?: KeyEvent.KEYCODE_GUIDE }
+    val keyInfo: Flow<Int> =
+        context.dataStore.data.map { it[keyInfoKey] ?: KeyEvent.KEYCODE_INFO }
+
+    suspend fun setKeyChannelUp(value: Int) {
+        context.dataStore.edit { it[keyChannelUpKey] = value }
+    }
+
+    suspend fun setKeyChannelDown(value: Int) {
+        context.dataStore.edit { it[keyChannelDownKey] = value }
+    }
+
+    suspend fun setKeyGuide(value: Int) {
+        context.dataStore.edit { it[keyGuideKey] = value }
+    }
+
+    suspend fun setKeyInfo(value: Int) {
+        context.dataStore.edit { it[keyInfoKey] = value }
     }
 }
