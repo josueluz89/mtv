@@ -73,6 +73,7 @@ import com.mtv.iptv.ui.components.MtvAsyncImage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import android.view.KeyEvent
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
