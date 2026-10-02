@@ -12,6 +12,8 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.ui.PlayerView
 import com.mtv.iptv.di.LocalAppContainer
@@ -116,8 +118,9 @@ class PlayerActivity : ComponentActivity() {
             }
         } else {
             setContent {
+                val theme by container.userPrefs.theme.collectAsState(initial = "sistema")
                 CompositionLocalProvider(LocalAppContainer provides container) {
-                    MtvTheme {
+                    MtvTheme(theme = theme) {
                         PlayerScreen(
                             url = url,
                             title = title,

@@ -16,6 +16,8 @@ object Routes {
     const val BROWSE = "browse/{kind}/{categoryId}/{categoryName}"
     const val VOD = "vod/{streamId}"
     const val SERIES = "series/{seriesId}"
+    const val DOWNLOADS = "downloads"
+    const val SETTINGS = "settings"
     const val ACTOR = "actor/{personId}"
     const val COMPANY = "company/{companyId}"
 
@@ -52,7 +54,10 @@ fun MobileNav() {
                 onVod = { navController.navigate(Routes.vod(it)) },
                 onSeries = { navController.navigate(Routes.series(it)) },
                 onFavorites = { navController.navigate(Routes.favorites()) },
+                onDownloads = { navController.navigate(Routes.DOWNLOADS) },
+                onSettings = { navController.navigate(Routes.SETTINGS) },
                 onLogout = {
+                    LoginFlowState.skipAutoLoginOnce = true
                     navController.navigate(Routes.SERVERS) {
                         popUpTo(Routes.HOME) { inclusive = true }
                     }
@@ -111,6 +116,25 @@ fun MobileNav() {
                 onBack = { navController.popBackStack() },
                 onActor = { navController.navigate(Routes.actor(it)) },
                 onCompany = { navController.navigate(Routes.company(it)) },
+            )
+        }
+        composable(Routes.DOWNLOADS) {
+            DownloadsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onServers = {
+                    navController.navigate(Routes.SERVERS) {
+                        popUpTo(Routes.HOME) { inclusive = true }
+                    }
+                },
+                onLogout = {
+                    LoginFlowState.skipAutoLoginOnce = true
+                    navController.navigate(Routes.SERVERS) {
+                        popUpTo(Routes.HOME) { inclusive = true }
+                    }
+                },
             )
         }
         composable(

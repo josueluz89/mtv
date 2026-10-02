@@ -98,6 +98,9 @@ dependencies {
     // Imágenes
     implementation("io.coil-kt:coil-compose:2.6.0")
 
+    // Almacenamiento cifrado (credenciales Xtream)
+    implementation("androidx.security:security-crypto:1.1.0")
+
     // Corrutinas
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")

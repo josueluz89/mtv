@@ -42,6 +42,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -63,13 +64,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.media3.common.Player
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.mtv.iptv.data.local.db.PlaybackEntity
+import com.mtv.iptv.data.remote.tmdb.TitleCleaner
+import com.mtv.iptv.data.remote.xtream.XtreamEpisode
 import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.util.formatMs
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -115,6 +120,73 @@ fun PlayerScreen(
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
 
+    // Ajustes de usuario
+    val pipEnabled by container.userPrefs.pipEnabled.collectAsState(initial = true)
+    // Clave del medio actual (cambia si el autoplay salta al siguiente episodio).
+    var currentKey by remember { mutableStateOf(mediaKey) }
+
+    /** Arranca la reproducción aplicando la velocidad por defecto del ajuste. */
+    fun startPlayback(positionMs: Long) {
+        manager.play(url, mediaKey, title, imageUrl, positionMs)
+        player.setPlaybackSpeed(speed)
+    }
+
+    /**
+     * Siguiente episodio automático: defensivo. Si el mediaKey no es de un
+     * episodio ("ep:<id>"), si no se deduce la serie del título o si algo
+     * falla, no hace nada (no rompe la reproducción actual).
+     */
+    suspend fun tryPlayNextEpisode() {
+        try {
+            if (!container.userPrefs.autoplayNext.first()) return
+            val key = currentKey
+            if (!key.startsWith("ep:")) return
+            val episodeId = key.removePrefix("ep:")
+            if (episodeId.isBlank()) return
+            // Formato de SeriesDetailScreen: "$serie — $episodio".
+            val seriesName = title.substringBefore(" — ").trim()
+            if (seriesName.isBlank() || seriesName == title) return
+            val repo = container.xtreamRepository
+            val series = repo.findSeriesByTitle(TitleCleaner.clean(seriesName).title) ?: return
+            if (series.seriesId == 0) return
+            val info = repo.getSeriesInfo(series.seriesId)
+            val seasons = info.episodes.keys.mapNotNull { it.toIntOrNull() }.sorted()
+            var found = false
+            var next: XtreamEpisode? = null
+            for (s in seasons) {
+                val eps = info.episodes[s.toString()].orEmpty().sortedBy { it.episodeNum }
+                if (found) {
+                    next = eps.firstOrNull()
+                    break
+                }
+                val idx = eps.indexOfFirst { it.id == episodeId }
+                if (idx >= 0) {
+                    found = true
+                    if (idx + 1 < eps.size) {
+                        next = eps[idx + 1]
+                        break
+                    }
+                    // Último de la temporada: sigue el primero de la próxima.
+                }
+            }
+            val ep = next ?: return
+            val nextTitle = "$seriesName — ${ep.title.ifBlank { "Episodio ${ep.episodeNum}" }}"
+            val nextKey = "ep:${ep.id}"
+            val defaultSpeed = container.userPrefs.defaultSpeed.first()
+            manager.play(
+                repo.episodeUrl(ep.id, ep.containerExtension),
+                nextKey,
+                nextTitle,
+                ep.info.movieImage.ifBlank { imageUrl },
+                0,
+            )
+            player.setPlaybackSpeed(defaultSpeed)
+            speed = defaultSpeed
+            currentKey = nextKey
+        } catch (_: Exception) {
+        }
+    }
+
     fun showIndicator(icon: ImageVector, text: String) {
         indicator = Indicator(icon, text)
     }
@@ -146,17 +218,34 @@ fun PlayerScreen(
         }
     }
 
-    // "Continuar desde HH:MM" si hay posición guardada
+    // "Continuar desde HH:MM" si hay posición guardada (y el ajuste lo permite).
+    // Aplica la velocidad por defecto al iniciar la reproducción.
     LaunchedEffect(url, mediaKey) {
+        val defaultSpeed = container.userPrefs.defaultSpeed.first()
+        speed = defaultSpeed
+        val resumeEnabled = container.userPrefs.resumeEnabled.first()
         val saved = container.playbackRepository.get(mediaKey)
-        if (saved != null && saved.positionMs > 10_000 &&
+        if (resumeEnabled && saved != null && saved.positionMs > 10_000 &&
             (saved.durationMs <= 0 || saved.positionMs < saved.durationMs - 15_000)
         ) {
             resumeFrom = saved
         } else {
-            manager.play(url, mediaKey, title, imageUrl, 0)
+            startPlayback(0)
         }
         resumeChecked = true
+    }
+
+    // Siguiente episodio automático al terminar (si el ajuste está activo).
+    DisposableEffect(mediaKey) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    scope.launch { tryPlayNextEpisode() }
+                }
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
     }
 
     // Guardar posición al pausar la activity
@@ -335,8 +424,10 @@ fun PlayerScreen(
                 IconButton(onClick = { showSleep = true }) {
                     Icon(Icons.Default.Bedtime, contentDescription = "Temporizador", tint = Color.White)
                 }
-                IconButton(onClick = { enterPip() }) {
-                    Icon(Icons.Default.PictureInPictureAlt, contentDescription = "Ventana flotante", tint = Color.White)
+                if (pipEnabled) {
+                    IconButton(onClick = { enterPip() }) {
+                        Icon(Icons.Default.PictureInPictureAlt, contentDescription = "Ventana flotante", tint = Color.White)
+                    }
                 }
                 IconButton(onClick = { locked = true }) {
                     Icon(Icons.Default.Lock, contentDescription = "Bloquear controles", tint = Color.White)
@@ -378,19 +469,19 @@ fun PlayerScreen(
             AlertDialog(
                 onDismissRequest = {
                     resumeFrom = null
-                    manager.play(url, mediaKey, title, imageUrl, 0)
+                    startPlayback(0)
                 },
                 title = { Text("Continuar viendo") },
                 text = { Text("¿Continuar desde ${formatMs(saved.positionMs)}?") },
                 confirmButton = {
                     TextButton(onClick = {
-                        manager.play(url, mediaKey, title, imageUrl, saved.positionMs)
+                        startPlayback(saved.positionMs)
                         resumeFrom = null
                     }) { Text("Continuar") }
                 },
                 dismissButton = {
                     TextButton(onClick = {
-                        manager.play(url, mediaKey, title, imageUrl, 0)
+                        startPlayback(0)
                         resumeFrom = null
                     }) { Text("Desde el inicio") }
                 },

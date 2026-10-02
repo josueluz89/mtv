@@ -7,6 +7,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.ui.mobile.MobileNav
 import com.mtv.iptv.ui.theme.MtvTheme
@@ -21,8 +23,9 @@ class MainActivity : ComponentActivity() {
         val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
         val container = appContainer
         setContent {
+            val theme by container.userPrefs.theme.collectAsState(initial = "sistema")
             CompositionLocalProvider(LocalAppContainer provides container) {
-                if (isTv) TvApp() else MtvTheme { MobileNav() }
+                if (isTv) TvApp() else MtvTheme(theme = theme) { MobileNav() }
             }
         }
     }

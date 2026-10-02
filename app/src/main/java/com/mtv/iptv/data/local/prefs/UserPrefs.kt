@@ -3,7 +3,9 @@ package com.mtv.iptv.data.local.prefs
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -38,6 +40,17 @@ class UserPrefs(private val context: Context) {
         }
     }
 
+    /**
+     * Borra las credenciales guardadas en plano (migración a SecurePrefs:
+     * se leen una vez, se guardan cifradas y se borran de aquí).
+     */
+    suspend fun clearCredentials() {
+        context.dataStore.edit {
+            it.remove(usernameKey)
+            it.remove(passwordKey)
+        }
+    }
+
     private val sortVodKey = stringPreferencesKey("sort_vod")
     private val sortSeriesKey = stringPreferencesKey("sort_series")
 
@@ -51,5 +64,99 @@ class UserPrefs(private val context: Context) {
 
     suspend fun setSortSeries(value: String) {
         context.dataStore.edit { it[sortSeriesKey] = value }
+    }
+
+    // ---------------- Reproducción ----------------
+
+    private val defaultSpeedKey = floatPreferencesKey("default_speed")
+
+    /** Velocidad de reproducción por defecto. Default 1f. */
+    val defaultSpeed: Flow<Float> = context.dataStore.data.map { it[defaultSpeedKey] ?: 1f }
+
+    suspend fun setDefaultSpeed(value: Float) {
+        context.dataStore.edit { it[defaultSpeedKey] = value }
+    }
+
+    private val autoplayNextKey = booleanPreferencesKey("autoplay_next")
+
+    /** Reproducir automáticamente el siguiente episodio al terminar uno. Default false. */
+    val autoplayNext: Flow<Boolean> = context.dataStore.data.map { it[autoplayNextKey] ?: false }
+
+    suspend fun setAutoplayNext(value: Boolean) {
+        context.dataStore.edit { it[autoplayNextKey] = value }
+    }
+
+    private val pipEnabledKey = booleanPreferencesKey("pip_enabled")
+
+    /** Mostrar el botón de Picture-in-Picture en el reproductor. Default true. */
+    val pipEnabled: Flow<Boolean> = context.dataStore.data.map { it[pipEnabledKey] ?: true }
+
+    suspend fun setPipEnabled(value: Boolean) {
+        context.dataStore.edit { it[pipEnabledKey] = value }
+    }
+
+    private val resumeEnabledKey = booleanPreferencesKey("resume_enabled")
+
+    /** Mostrar el diálogo "Continuar viendo" (sino arranca desde 0). Default true. */
+    val resumeEnabled: Flow<Boolean> = context.dataStore.data.map { it[resumeEnabledKey] ?: true }
+
+    suspend fun setResumeEnabled(value: Boolean) {
+        context.dataStore.edit { it[resumeEnabledKey] = value }
+    }
+
+    // ---------------- Descargas ----------------
+
+    private val dlQualityKey = stringPreferencesKey("dl_quality")
+
+    /** Calidad de descarga ("auto" | "alta" | "media" | "baja"). Default "alta". */
+    val dlQuality: Flow<String> = context.dataStore.data.map { it[dlQualityKey] ?: "alta" }
+
+    suspend fun setDlQuality(value: String) {
+        context.dataStore.edit { it[dlQualityKey] = value }
+    }
+
+    private val dlWifiOnlyKey = booleanPreferencesKey("dl_wifi_only")
+
+    /** Descargar solo con Wi-Fi. Default true. */
+    val dlWifiOnly: Flow<Boolean> = context.dataStore.data.map { it[dlWifiOnlyKey] ?: true }
+
+    suspend fun setDlWifiOnly(value: Boolean) {
+        context.dataStore.edit { it[dlWifiOnlyKey] = value }
+    }
+
+    // ---------------- Apariencia ----------------
+
+    private val themeKey = stringPreferencesKey("theme")
+
+    /** Tema de la app ("sistema" | "oscuro" | "claro"). Default "sistema". */
+    val theme: Flow<String> = context.dataStore.data.map { it[themeKey] ?: "sistema" }
+
+    suspend fun setTheme(value: String) {
+        context.dataStore.edit { it[themeKey] = value }
+    }
+
+    private val languageKey = stringPreferencesKey("language")
+
+    /** Idioma de la UI. Default "es" (por ahora solo español). */
+    val language: Flow<String> = context.dataStore.data.map { it[languageKey] ?: "es" }
+
+    suspend fun setLanguage(value: String) {
+        context.dataStore.edit { it[languageKey] = value }
+    }
+
+    private val defaultSortKey = stringPreferencesKey("default_sort")
+
+    /**
+     * Orden global del catálogo ("nombre" | "recientes" | "rating" | "anio").
+     * Al cambiarse se aplica a sort_vod y sort_series. Default "nombre".
+     */
+    val defaultSort: Flow<String> = context.dataStore.data.map { it[defaultSortKey] ?: "nombre" }
+
+    suspend fun setDefaultSort(value: String) {
+        context.dataStore.edit {
+            it[defaultSortKey] = value
+            it[sortVodKey] = value
+            it[sortSeriesKey] = value
+        }
     }
 }

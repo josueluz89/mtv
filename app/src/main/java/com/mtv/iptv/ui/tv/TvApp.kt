@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +56,10 @@ import com.mtv.iptv.data.remote.xtream.XtreamLiveStream
 import com.mtv.iptv.data.remote.xtream.XtreamSeries
 import com.mtv.iptv.data.remote.xtream.XtreamVodStream
 import com.mtv.iptv.di.LocalAppContainer
+import com.mtv.iptv.player.downloads.DownloadEntry
+import com.mtv.iptv.ui.mobile.LoginFlowState
+import com.mtv.iptv.ui.mobile.SettingsContent
+import com.mtv.iptv.player.downloads.EstadoDescarga
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -77,7 +82,28 @@ fun TvApp() {
                     onSection = { kind -> navController.navigate("tv_section/$kind") },
                     onVod = { navController.navigate("tv_vod/$it") },
                     onSeries = { navController.navigate("tv_series/$it") },
+                    onDownloads = { navController.navigate("tv_downloads") },
+                    onSettings = { navController.navigate("tv_settings") },
                     onLogout = {
+                        navController.navigate("tv_servers") {
+                            popUpTo("tv_browse") { inclusive = true }
+                        }
+                    },
+                )
+            }
+            composable("tv_downloads") {
+                TvDownloadsScreen(onBack = { navController.popBackStack() })
+            }
+            composable("tv_settings") {
+                TvSettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onServers = {
+                        navController.navigate("tv_servers") {
+                            popUpTo("tv_browse") { inclusive = true }
+                        }
+                    },
+                    onLogout = {
+                        LoginFlowState.skipAutoLoginOnce = true
                         navController.navigate("tv_servers") {
                             popUpTo("tv_browse") { inclusive = true }
                         }
@@ -152,11 +178,67 @@ fun TvServersScreen(onConnected: () -> Unit) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
+    var autoLogin by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        username = container.userPrefs.getUsername()
-        password = container.userPrefs.getPassword()
+        val secure = container.securePrefs
+        val skip = LoginFlowState.skipAutoLoginOnce
+            .also { LoginFlowState.skipAutoLoginOnce = false }
+
+        // Credenciales para el auto-login: primero las cifradas del último
+        // servidor; si no hay, se migran las viejas en plano (UserPrefs).
+        var autoCreds: Pair<String, String>? = null
+        if (!skip) {
+            val lastId = secure.getLastServerId()
+            autoCreds = if (lastId > 0) secure.getCredentials(lastId) else null
+            if (autoCreds == null) {
+                val oldUser = container.userPrefs.getUsername()
+                val oldPass = container.userPrefs.getPassword()
+                if (oldUser.isNotBlank() && oldPass.isNotBlank()) {
+                    autoCreds = oldUser to oldPass
+                } else {
+                    username = oldUser
+                    password = oldPass
+                }
+            }
+        } else {
+            // Logout: precargar el formulario con lo recordado, sin auto-login.
+            val lastId = secure.getLastServerId()
+            val remembered = if (lastId > 0) secure.getCredentials(lastId) else null
+            username = remembered?.first ?: container.userPrefs.getUsername()
+            password = remembered?.second ?: container.userPrefs.getPassword()
+        }
+
+        // Login automático silencioso con las credenciales guardadas.
+        val (autoUser, autoPass) = autoCreds ?: return@LaunchedEffect
+        autoLogin = true
+        when (val result = container.xtreamRepository.loginAuto(autoUser, autoPass)) {
+            is LoginResult.Ok -> {
+                val row = container.serverRepository.getOrCreateSingle()
+                val updated = row.copy(
+                    name = "MTV",
+                    url = result.session.baseUrl,
+                    username = autoUser,
+                    password = autoPass,
+                )
+                container.serverRepository.upsert(updated)
+                container.xtreamRepository.updateSessionServer(updated)
+                // Guardar cifrado (migra las viejas en plano) + recordar servidor.
+                secure.saveCredentials(row.id, autoUser, autoPass)
+                secure.setLastServerId(row.id)
+                container.userPrefs.setLastServerId(row.id)
+                container.userPrefs.clearCredentials()
+                onConnected()
+            }
+            else -> {
+                // Falla: mostrar el formulario con los datos para reintentar.
+                username = autoUser
+                password = autoPass
+                autoLogin = false
+                error = "No se pudo conectar automáticamente. Revisá tus datos."
+            }
+        }
     }
 
     fun connect() {
@@ -180,8 +262,10 @@ fun TvServersScreen(onConnected: () -> Unit) {
                     )
                     container.serverRepository.upsert(updated)
                     container.xtreamRepository.updateSessionServer(updated)
+                    container.securePrefs.saveCredentials(row.id, user, password)
+                    container.securePrefs.setLastServerId(row.id)
                     container.userPrefs.setLastServerId(row.id)
-                    container.userPrefs.setCredentials(user, password)
+                    container.userPrefs.clearCredentials()
                     loading = false
                     onConnected()
                 }
@@ -206,6 +290,9 @@ fun TvServersScreen(onConnected: () -> Unit) {
     ) {
         Text("MTV", style = MaterialTheme.typography.displaySmall)
         Spacer(Modifier.height(24.dp))
+        if (autoLogin) {
+            Text("Conectando…", style = MaterialTheme.typography.headlineSmall)
+        } else {
         OutlinedTextField(
             value = username,
             onValueChange = { username = it },
@@ -230,6 +317,38 @@ fun TvServersScreen(onConnected: () -> Unit) {
         Button(onClick = ::connect, enabled = !loading) {
             Text(if (loading) "Conectando…" else "Conectar")
         }
+        }
+    }
+}
+
+// ---------------- Configuración (TV) ----------------
+
+/**
+ * Configuración en TV: reusa el contenido de [SettingsContent] (móvil) con un
+ * encabezado TV y botón Atrás. Los cuadros de diálogo de Material3 funcionan
+ * con D-pad.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun TvSettingsScreen(
+    onBack: () -> Unit,
+    onServers: () -> Unit,
+    onLogout: () -> Unit,
+) {
+    MaterialTheme {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onBack) { Text("Atrás") }
+                Spacer(Modifier.width(16.dp))
+                Text("Configuración", style = MaterialTheme.typography.headlineSmall)
+            }
+            Spacer(Modifier.height(16.dp))
+            SettingsContent(onServers = onServers, onLogout = onLogout)
+        }
     }
 }
 
@@ -241,6 +360,8 @@ fun TvBrowseScreen(
     onSection: (String) -> Unit,
     onVod: (Int) -> Unit,
     onSeries: (Int) -> Unit,
+    onDownloads: () -> Unit,
+    onSettings: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -279,7 +400,12 @@ fun TvBrowseScreen(
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("MTV", style = MaterialTheme.typography.displaySmall, modifier = Modifier.weight(1f))
+                Button(onClick = onDownloads) { Text("Descargas") }
+                Spacer(Modifier.width(12.dp))
+                Button(onClick = onSettings) { Text("Configuración") }
+                Spacer(Modifier.width(12.dp))
                 Button(onClick = {
+                    LoginFlowState.skipAutoLoginOnce = true
                     scope.launch { repo.logout() }
                     onLogout()
                 }) { Text("Salir") }
@@ -744,6 +870,99 @@ fun TvCategoryItemsScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+// ---------------- Descargas (TV) ----------------
+
+/** Lista de descargas con D-pad: reproducir (offline vía caché) y borrar. */
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalTvFoundationApi::class)
+@Composable
+fun TvDownloadsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val container = LocalAppContainer.current
+    val module = container.downloadModule
+    val entradas by module.tracker.entradas.collectAsState()
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(32.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onBack) { Text("Atrás") }
+                Spacer(Modifier.width(16.dp))
+                Text(
+                    "Mis descargas",
+                    style = MaterialTheme.typography.displaySmall,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        if (entradas.isEmpty()) {
+            item {
+                Text(
+                    "No tenés descargas todavía",
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.padding(top = 32.dp),
+                )
+            }
+        } else {
+            items(entradas, key = { it.id }) { entry ->
+                TvDownloadRow(
+                    entry = entry,
+                    onPlay = {
+                        PlayerActivity.start(
+                            context, entry.url, entry.title, entry.id, entry.imageUrl
+                        )
+                    },
+                    onDelete = { module.removeDownload(entry.id) },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun TvDownloadRow(
+    entry: DownloadEntry,
+    onPlay: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Card(onClick = onPlay, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AsyncImage(
+                model = entry.imageUrl.ifBlank { null },
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .width(160.dp)
+                    .aspectRatio(16f / 9f),
+            )
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(entry.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                val estado = when (val e = entry.estado) {
+                    is EstadoDescarga.Descargando -> "Descargando… ${e.progreso}%"
+                    EstadoDescarga.Descargado -> "Descargado"
+                    EstadoDescarga.Error -> "Error en la descarga"
+                    EstadoDescarga.NoDescargado -> ""
+                }
+                if (estado.isNotBlank()) Text(estado, style = MaterialTheme.typography.bodyMedium)
+            }
+            Spacer(Modifier.width(12.dp))
+            Button(onClick = onPlay) { Text("Reproducir") }
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = onDelete) { Text("Borrar") }
         }
     }
 }

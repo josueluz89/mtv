@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.ExoPlayer
 import com.mtv.iptv.data.local.db.PlaybackEntity
@@ -28,6 +30,7 @@ import kotlinx.coroutines.withContext
 class PlayerManager(
     appContext: Context,
     private val playbackRepository: PlaybackRepository,
+    cacheDataSourceFactory: CacheDataSource.Factory,
 ) {
 
     // NOTA DE CODECS: no se ponen límites de tamaño de video, bitrate máximo
@@ -42,6 +45,9 @@ class PlayerManager(
 
     val player: ExoPlayer = ExoPlayer.Builder(appContext, renderersFactory)
         .setTrackSelector(trackSelector)
+        // CacheDataSource COMPARTIDO con el módulo de descargas: la reproducción
+        // lee automáticamente del caché (offline transparente).
+        .setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSourceFactory))
         .setSeekBackIncrementMs(10_000)
         .setSeekForwardIncrementMs(10_000)
         .build()

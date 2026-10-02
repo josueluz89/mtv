@@ -8,8 +8,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,6 +44,8 @@ fun HomeScreen(
     onVod: (Int) -> Unit,
     onSeries: (Int) -> Unit,
     onFavorites: () -> Unit,
+    onDownloads: () -> Unit,
+    onSettings: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -94,6 +98,7 @@ fun HomeScreen(
     fun logout() {
         scope.launch {
             repo.logout()
+            LoginFlowState.skipAutoLoginOnce = true
             onLogout()
         }
     }
@@ -105,6 +110,12 @@ fun HomeScreen(
                 actions = {
                     IconButton(onClick = onFavorites) {
                         Icon(Icons.Default.Favorite, contentDescription = "Favoritos")
+                    }
+                    IconButton(onClick = onDownloads) {
+                        Icon(Icons.Default.Download, contentDescription = "Mis descargas")
+                    }
+                    IconButton(onClick = onSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Configuración")
                     }
                     IconButton(onClick = { logout() }) {
                         Icon(Icons.Default.Logout, contentDescription = "Cerrar sesión")

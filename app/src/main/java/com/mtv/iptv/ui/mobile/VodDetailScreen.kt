@@ -241,6 +241,16 @@ fun VodDetailScreen(
                     Spacer(Modifier.width(4.dp))
                     Text("Ver ahora")
                 }
+                val vi0 = vi
+                if (vi0 != null) {
+                    DownloadButton(
+                        id = "vod:${vi0.movieData.streamId}",
+                        url = repo.vodUrl(vi0.movieData.streamId, vi0.movieData.containerExtension),
+                        title = vi0.movieData.name,
+                        imageUrl = poster,
+                        adaptive = vi0.movieData.containerExtension.lowercase() in listOf("m3u8", "mpd"),
+                    )
+                }
                 if (tmdb?.trailerKey != null) {
                     OutlinedButton(onClick = { openTrailer() }) {
                         Icon(Icons.Default.SmartDisplay, contentDescription = null)

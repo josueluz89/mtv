@@ -330,8 +330,9 @@ fun SeriesDetailScreen(
                             )
                             Spacer(Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
+                                val epTitle = ep.title.ifBlank { "Episodio ${ep.episodeNum}" }
                                 Text(
-                                    "${ep.episodeNum}. ${ep.title.ifBlank { "Episodio ${ep.episodeNum}" }}",
+                                    "${ep.episodeNum}. $epTitle",
                                     style = MaterialTheme.typography.bodyMedium,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
@@ -346,6 +347,13 @@ fun SeriesDetailScreen(
                                     )
                                 }
                             }
+                            DownloadButton(
+                                id = "ep:${ep.id}",
+                                url = repo.episodeUrl(ep.id, ep.containerExtension),
+                                title = "$title — ${ep.title.ifBlank { "Episodio ${ep.episodeNum}" }}",
+                                imageUrl = ep.info.movieImage.ifBlank { poster },
+                                adaptive = ep.containerExtension.lowercase() in listOf("m3u8", "mpd"),
+                            )
                         }
                     }
                 }
