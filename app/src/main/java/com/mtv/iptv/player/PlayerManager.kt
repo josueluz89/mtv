@@ -1,6 +1,7 @@
 package com.mtv.iptv.player
 
 import android.content.Context
+import android.os.Handler
 import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -11,10 +12,12 @@ import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.video.VideoRendererEventListener
 import com.mtv.iptv.data.local.db.PlaybackEntity
 import com.mtv.iptv.data.local.prefs.UserPrefs
 import com.mtv.iptv.data.repository.PlaybackRepository
@@ -120,7 +123,37 @@ class PlayerManager(
         }
 
     private fun buildPlayer(config: BuildConfig): ExoPlayer {
-        val renderersFactory = DefaultRenderersFactory(appCtx, videoCodecSelector(config.videoDecoder))
+        // Media3 1.9.0 no expone constructor con MediaCodecSelector: para el
+        // modo "sw" se inyecta el selector de solo-software sobreescribiendo
+        // buildVideoRenderers. En "hw" va la fábrica estándar.
+        val softwareSelector = videoCodecSelector(config.videoDecoder)
+        val baseFactory: DefaultRenderersFactory =
+            if (config.videoDecoder == "sw") {
+                object : DefaultRenderersFactory(appCtx) {
+                    override fun buildVideoRenderers(
+                        context: Context,
+                        extensionRendererMode: Int,
+                        mediaCodecSelector: MediaCodecSelector,
+                        enableDecoderFallback: Boolean,
+                        eventHandler: Handler,
+                        eventListener: VideoRendererEventListener,
+                        allowedVideoJoiningTimeMs: Long,
+                    ): Array<Renderer> {
+                        return super.buildVideoRenderers(
+                            context,
+                            extensionRendererMode,
+                            softwareSelector,
+                            enableDecoderFallback,
+                            eventHandler,
+                            eventListener,
+                            allowedVideoJoiningTimeMs,
+                        )
+                    }
+                }
+            } else {
+                DefaultRenderersFactory(appCtx)
+            }
+        val renderersFactory = baseFactory
             .setExtensionRendererMode(
                 when (config.audioDecoder) {
                     // Solo hardware: FFmpeg fuera.

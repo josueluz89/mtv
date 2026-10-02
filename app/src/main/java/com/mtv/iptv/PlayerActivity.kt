@@ -107,6 +107,9 @@ class PlayerActivity : ComponentActivity() {
     @Volatile
     private var afrEnabledCached = false
 
+    @Volatile
+    private var lastAfrModeId = 0
+
     private fun resizeModeFor(pref: String): Int = when (pref) {
         "fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
         "zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -136,10 +139,13 @@ class PlayerActivity : ComponentActivity() {
             val best = disp.supportedModes.minByOrNull {
                 kotlin.math.abs(it.refreshRate - frameRate)
             } ?: return
-            if (best.modeId == 0 || best.modeId == disp.modeId) return
+            // Display no expone getModeId(): se evita re-aplicar el mismo modo
+            // con el último id que nosotros mismos pedimos.
+            if (best.modeId == 0 || best.modeId == lastAfrModeId) return
             val attrs = window.attributes
             attrs.preferredDisplayModeId = best.modeId
             window.attributes = attrs
+            lastAfrModeId = best.modeId
         } catch (_: Exception) {
         }
     }
