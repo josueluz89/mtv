@@ -1,175 +1,103 @@
-
 package com.mtv.iptv.ui.movies
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import com.mtv.iptv.data.remote.tmdb.TitleCleaner
-import com.mtv.iptv.data.remote.tmdb.TmdbMedia
 import com.mtv.iptv.data.remote.xtream.XtreamCategory
-import com.mtv.iptv.data.remote.xtream.XtreamVodStream
 import com.mtv.iptv.di.LocalAppContainer
-import com.mtv.iptv.ui.common.CatalogHero
-import com.mtv.iptv.ui.common.ImPosterCard
 import com.mtv.iptv.ui.common.MtvBg
+import com.mtv.iptv.ui.common.MtvGold
 import com.mtv.iptv.ui.common.MtvOnBg
+import com.mtv.iptv.ui.common.MtvOnVariant
+import com.mtv.iptv.ui.common.MtvSurfaceVariant
 import com.mtv.iptv.ui.common.MtvUiTheme
-import com.mtv.iptv.ui.common.RowTitle
 import com.mtv.iptv.ui.common.ScreenTopBar
 import com.mtv.iptv.ui.common.SecondaryButton
-import com.mtv.iptv.ui.common.SortMenuButton
-import com.mtv.iptv.ui.common.buildMeta
-import com.mtv.iptv.ui.common.catalogSortLabel
-import com.mtv.iptv.ui.common.openYoutube
-import com.mtv.iptv.ui.common.parseRating
-import com.mtv.iptv.ui.common.sortCatalogItems
 import com.mtv.iptv.ui.mobile.ErrorBox
 import com.mtv.iptv.ui.mobile.LoadingBox
+import com.mtv.iptv.ui.mobile.safeClickable
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Rutas que exponen las pantallas de películas para que el coordinador las registre. */
-object MoviesRoutes {
-    const val MOVIES = "v12_movies"
-    const val ALL_MOVIES = "v12_all_movies"
-    const val MOVIE_FOLDERS = "v12_movie_folders"
-    const val MOVIE_FOLDER_BASE = "v12_movie_folder"
-    fun movieFolder(categoryId: String) = "$MOVIE_FOLDER_BASE/$categoryId"
-}
-
-/** Primeras N categorías que se muestran como filas en la pantalla principal. */
-private const val MAX_CATEGORY_ROWS = 6
-
-/** Items por fila horizontal. */
-private const val ROW_ITEMS = 20
-
-private data class VodCategoryRow(
+private data class VodFolderRow(
     val category: XtreamCategory,
     val total: Int,
-    val items: List<XtreamVodStream>,
 )
 
 /**
- * Pantalla principal de películas estilo iMPlayer: hero del #1 (backdrop del
- * mejor rankeado según el orden activo), encabezado "All Movies (N)" con botón
- * "Ver todo" (grilla paginada), fila "Mejor valoradas" y filas por categoría.
+ * Pantalla principal de películas: TODAS las categorías VOD del proveedor
+ * como carpetas (vista principal), cada una con su conteo real de títulos.
  *
- * El ordenamiento del catálogo es el de v1.1 (nombre/año/rating/recientes),
- * persistido en UserPrefs, pero ejecutado con Dispatchers.Default: con ~86k
- * items, ordenarlo en el hilo UI congelaría la app.
+ * Tocar una carpeta abre su contenido COMPLETO. El buscador filtra las
+ * carpetas por nombre. Los conteos se calculan con UNA sola llamada
+ * `getVodStreams(null)` agrupada por categoryId en Dispatchers.Default.
+ * Las categorías vacías se ocultan.
  */
 @Composable
 fun MoviesScreen(
     onBack: () -> Unit,
-    onVod: (Int) -> Unit,
+    onFolder: (XtreamCategory) -> Unit,
     onSeeAll: () -> Unit,
-    onFolders: () -> Unit = {},
 ) {
-    val context = LocalContext.current
     val container = LocalAppContainer.current
-    val scope = rememberCoroutineScope()
     val repo = container.xtreamRepository
 
-    var all by remember { mutableStateOf<List<XtreamVodStream>>(emptyList()) }
-    var categories by remember { mutableStateOf<List<XtreamCategory>>(emptyList()) }
-    var sorted by remember { mutableStateOf<List<XtreamVodStream>>(emptyList()) }
-    var topRated by remember { mutableStateOf<List<XtreamVodStream>>(emptyList()) }
-    var categoryRows by remember { mutableStateOf<List<VodCategoryRow>>(emptyList()) }
-    var heroItem by remember { mutableStateOf<XtreamVodStream?>(null) }
-    var heroTmdb by remember { mutableStateOf<TmdbMedia?>(null) }
-    var sortKey by remember { mutableStateOf("nombre") }
+    var folders by remember { mutableStateOf<List<VodFolderRow>>(emptyList()) }
+    var query by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var reloadTick by remember { mutableStateOf(0) }
 
-    // Carga: categorías + catálogo completo (una sola llamada, como v1.1).
     LaunchedEffect(reloadTick) {
         loading = true
         error = null
         try {
-            sortKey = container.userPrefs.sortVod.first()
-            categories = repo.getVodCategories().distinctBy { it.categoryId }
-            all = repo.getVodStreams(null)
+            val categories = repo.getVodCategories().distinctBy { it.categoryId }
+            val all = repo.getVodStreams(null)
+            folders = withContext(Dispatchers.Default) {
+                val counts = all.groupingBy { it.categoryId }.eachCount()
+                categories.mapNotNull { cat ->
+                    val total = counts[cat.categoryId] ?: 0
+                    if (total > 0) VodFolderRow(cat, total) else null
+                }
+            }
         } catch (e: Exception) {
             error = "No se pudieron cargar las películas."
         }
         loading = false
     }
 
-    // Orden + "mejor valoradas" + filas por categoría: fuera del hilo UI.
-    LaunchedEffect(all, categories, sortKey) {
-        if (all.isEmpty()) {
-            sorted = emptyList()
-            topRated = emptyList()
-            categoryRows = emptyList()
-            return@LaunchedEffect
-        }
-        val s = withContext(Dispatchers.Default) {
-            sortCatalogItems(all, sortKey, { it.name }, { it.added }, { it.rating })
-        }
-        sorted = s
-        topRated = withContext(Dispatchers.Default) {
-            all.mapNotNull { v -> parseRating(v.rating)?.let { v to it } }
-                .sortedByDescending { it.second }
-                .take(ROW_ITEMS)
-                .map { it.first }
-        }
-        categoryRows = withContext(Dispatchers.Default) {
-            categories.take(MAX_CATEGORY_ROWS).map { cat ->
-                val inCat = s.filter { it.categoryId == cat.categoryId }
-                VodCategoryRow(cat, inCat.size, inCat.take(ROW_ITEMS))
-            }.filter { it.total > 0 }
-        }
-    }
-
-    // Hero: TMDB del #1 del orden activo.
-    LaunchedEffect(sorted) {
-        val first = sorted.firstOrNull()
-        heroItem = first
-        heroTmdb = if (first != null) {
-            try {
-                container.tmdbRepository.findMovie(first.name, TitleCleaner.clean(first.name).year)
-            } catch (e: Exception) {
-                null
-            }
-        } else {
-            null
-        }
-    }
-
-    fun changeSort(value: String) {
-        sortKey = value
-        scope.launch {
-            try {
-                container.userPrefs.setSortVod(value)
-            } catch (e: Exception) {
-            }
-        }
+    val visible = remember(folders, query) {
+        val q = query.trim().lowercase()
+        if (q.isBlank()) folders
+        else folders.filter { it.category.categoryName.lowercase().contains(q) }
     }
 
     MtvUiTheme {
@@ -178,9 +106,7 @@ fun MoviesScreen(
                 .fillMaxSize()
                 .background(MtvBg),
         ) {
-            ScreenTopBar(title = "Películas", onBack = onBack) {
-                SortMenuButton(sortKey = sortKey, onSortChange = ::changeSort)
-            }
+            ScreenTopBar(title = "Películas", onBack = onBack)
             when {
                 loading -> LoadingBox(Modifier.weight(1f))
                 error != null -> ErrorBox(
@@ -188,92 +114,72 @@ fun MoviesScreen(
                     onRetry = { reloadTick++ },
                     modifier = Modifier.weight(1f),
                 )
-                else -> LazyColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentPadding = PaddingValues(bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    val hero = heroItem
-                    if (hero != null) {
-                        item {
-                            val tmdb = heroTmdb
-                            CatalogHero(
-                                backdropUrl = tmdb?.backdropUrl
-                                    ?: hero.streamIcon.ifBlank { null },
-                                badge = "N.° 1 · ${catalogSortLabel(sortKey)}",
-                                title = tmdb?.title ?: hero.name,
-                                meta = buildMeta(
-                                    tmdb?.year ?: TitleCleaner.clean(hero.name).year,
-                                    tmdb?.rating?.takeIf { it > 0 }
-                                        ?: parseRating(hero.rating),
-                                    null,
-                                ),
-                                overview = tmdb?.overview?.takeIf { it.isNotBlank() },
-                                onPlay = { onVod(hero.streamId) },
-                                onTrailer = tmdb?.trailerKey?.let { key ->
-                                    { openYoutube(context, key) }
-                                },
-                            )
-                        }
+                else -> {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        label = { Text("Buscar carpeta") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Carpetas (${visible.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MtvOnBg,
+                            modifier = Modifier.weight(1f),
+                        )
+                        SecondaryButton(text = "Ver todo", onClick = onSeeAll)
                     }
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .padding(top = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "All Movies (${all.size})",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MtvOnBg,
-                                modifier = Modifier.weight(1f),
-                            )
-                            SecondaryButton(
-                                text = "Carpetas",
-                                onClick = onFolders,
-                                icon = Icons.Default.Folder,
-                                modifier = Modifier.padding(end = 8.dp),
-                            )
-                            SecondaryButton(text = "Ver todo", onClick = onSeeAll)
-                        }
-                    }
-                    if (topRated.isNotEmpty()) {
-                        item { RowTitle("Mejor valoradas") }
-                        item {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        items(visible, key = { it.category.categoryId }) { row ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .safeClickable { onFolder(row.category) }
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                items(topRated, key = { "${it.streamId}:${it.name}" }) { v ->
-                                    ImPosterCard(
-                                        imageUrl = v.streamIcon.ifBlank { null },
-                                        title = v.name,
-                                        rating = parseRating(v.rating),
-                                        onClick = { onVod(v.streamId) },
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MtvSurfaceVariant),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        Icons.Default.Folder,
+                                        contentDescription = null,
+                                        tint = MtvGold,
+                                        modifier = Modifier.size(24.dp),
                                     )
                                 }
-                            }
-                        }
-                    }
-                    categoryRows.forEach { row ->
-                        item {
-                            RowTitle("${row.category.categoryName} (${row.total})")
-                        }
-                        item {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                items(row.items, key = { "${it.streamId}:${it.name}" }) { v ->
-                                    ImPosterCard(
-                                        imageUrl = v.streamIcon.ifBlank { null },
-                                        title = v.name,
-                                        rating = parseRating(v.rating),
-                                        onClick = { onVod(v.streamId) },
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(start = 14.dp),
+                                ) {
+                                    Text(
+                                        row.category.categoryName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MtvOnBg,
+                                    )
+                                    Text(
+                                        "${row.total} títulos",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MtvOnVariant,
                                     )
                                 }
                             }

@@ -31,12 +31,10 @@ import com.mtv.iptv.ui.detail.SeriesDetailScreen as V12SeriesDetailScreen
 import com.mtv.iptv.ui.downloads.DownloadsScreen
 import com.mtv.iptv.ui.home.HomeScreen
 import com.mtv.iptv.ui.movies.AllMoviesScreen
-import com.mtv.iptv.ui.movies.MovieFoldersScreen
 import com.mtv.iptv.ui.movies.MoviesScreen
 import com.mtv.iptv.ui.library.LibraryScreen
 import com.mtv.iptv.ui.search.SearchScreen
 import com.mtv.iptv.ui.series.AllSeriesScreen
-import com.mtv.iptv.ui.series.SeriesFoldersScreen
 import com.mtv.iptv.ui.series.SeriesScreen
 import com.mtv.iptv.ui.speedtest.SpeedTestScreen
 import com.mtv.iptv.ui.tv.LiveTvScreen
@@ -58,9 +56,6 @@ object Routes {
     const val V12_SERIE = "v12_serie/{seriesId}"
     const val ALL_MOVIES = "v12_all_movies"
     const val ALL_SERIES = "v12_all_series"
-    /** Carpetas: todas las categorías del proveedor como lista de carpetas. */
-    const val MOVIE_FOLDERS = "v12_movie_folders"
-    const val SERIES_FOLDERS = "v12_series_folders"
     /** Mi biblioteca: historial + favoritos en un solo lugar. */
     const val LIBRARY = "v12_library"
 
@@ -162,17 +157,19 @@ fun MobileNav() {
                 composable(Routes.MOVIES) {
                     MoviesScreen(
                         onBack = { navController.popBackStack() },
-                        onVod = { navController.navigate(Routes.v12movie(it)) },
+                        onFolder = { cat ->
+                            navController.navigate(Routes.browse("vod", cat.categoryId, cat.categoryName))
+                        },
                         onSeeAll = { navController.navigate(Routes.ALL_MOVIES) },
-                        onFolders = { navController.navigate(Routes.MOVIE_FOLDERS) },
                     )
                 }
                 composable(Routes.SERIES) {
                     SeriesScreen(
                         onBack = { navController.popBackStack() },
-                        onSeries = { navController.navigate(Routes.v12serie(it)) },
+                        onFolder = { cat ->
+                            navController.navigate(Routes.browse("series", cat.categoryId, cat.categoryName))
+                        },
                         onSeeAll = { navController.navigate(Routes.ALL_SERIES) },
-                        onFolders = { navController.navigate(Routes.SERIES_FOLDERS) },
                     )
                 }
                 composable(Routes.SEARCH) {
@@ -216,22 +213,6 @@ fun MobileNav() {
                 AllSeriesScreen(
                     onBack = { navController.popBackStack() },
                     onSeries = { navController.navigate(Routes.v12serie(it)) },
-                )
-            }
-            composable(Routes.MOVIE_FOLDERS) {
-                MovieFoldersScreen(
-                    onBack = { navController.popBackStack() },
-                    onFolder = { cat ->
-                        navController.navigate(Routes.browse("vod", cat.categoryId, cat.categoryName))
-                    },
-                )
-            }
-            composable(Routes.SERIES_FOLDERS) {
-                SeriesFoldersScreen(
-                    onBack = { navController.popBackStack() },
-                    onFolder = { cat ->
-                        navController.navigate(Routes.browse("series", cat.categoryId, cat.categoryName))
-                    },
                 )
             }
             composable(Routes.LIBRARY) {

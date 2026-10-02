@@ -41,6 +41,9 @@ class PlayerActivity : ComponentActivity() {
         const val EXTRA_ZAP_NAMES = "extra_zap_names"
         const val EXTRA_ZAP_NUMS = "extra_zap_nums"
         const val EXTRA_ZAP_ICONS = "extra_zap_icons"
+        const val EXTRA_SUB_TMDB = "extra_sub_tmdb"
+        const val EXTRA_SUB_SEASON = "extra_sub_season"
+        const val EXTRA_SUB_EPISODE = "extra_sub_episode"
 
         fun start(
             context: Context,
@@ -49,6 +52,9 @@ class PlayerActivity : ComponentActivity() {
             mediaKey: String,
             imageUrl: String = "",
             zap: List<ZapChannel> = emptyList(),
+            subTmdbId: Int? = null,
+            subSeason: Int? = null,
+            subEpisode: Int? = null,
         ) {
             val intent = Intent(context, PlayerActivity::class.java).apply {
                 putExtra(EXTRA_URL, url)
@@ -60,6 +66,11 @@ class PlayerActivity : ComponentActivity() {
                     putExtra(EXTRA_ZAP_NAMES, zap.map { it.name }.toTypedArray())
                     putExtra(EXTRA_ZAP_NUMS, zap.map { it.num }.toIntArray())
                     putExtra(EXTRA_ZAP_ICONS, zap.map { it.icon }.toTypedArray())
+                }
+                if (subTmdbId != null) {
+                    putExtra(EXTRA_SUB_TMDB, subTmdbId)
+                    if (subSeason != null) putExtra(EXTRA_SUB_SEASON, subSeason)
+                    if (subEpisode != null) putExtra(EXTRA_SUB_EPISODE, subEpisode)
                 }
             }
             context.startActivity(intent)
@@ -194,6 +205,9 @@ class PlayerActivity : ComponentActivity() {
         } else {
             // Rama móvil: la lista de zapping solo se usa en PlayerScreen.
             val zapChannels = zapFromIntent(intent)
+            val subTmdbId = if (intent.hasExtra(EXTRA_SUB_TMDB)) intent.getIntExtra(EXTRA_SUB_TMDB, 0).takeIf { it > 0 } else null
+            val subSeason = if (intent.hasExtra(EXTRA_SUB_SEASON)) intent.getIntExtra(EXTRA_SUB_SEASON, 0).takeIf { it > 0 } else null
+            val subEpisode = if (intent.hasExtra(EXTRA_SUB_EPISODE)) intent.getIntExtra(EXTRA_SUB_EPISODE, 0).takeIf { it > 0 } else null
             setContent {
                 val theme by container.userPrefs.theme.collectAsState(initial = "sistema")
                 CompositionLocalProvider(LocalAppContainer provides container) {
@@ -205,6 +219,9 @@ class PlayerActivity : ComponentActivity() {
                             imageUrl = imageUrl,
                             onBack = { finish() },
                             zapChannels = zapChannels,
+                            subTmdbId = subTmdbId,
+                            subSeason = subSeason,
+                            subEpisode = subEpisode,
                         )
                     }
                 }

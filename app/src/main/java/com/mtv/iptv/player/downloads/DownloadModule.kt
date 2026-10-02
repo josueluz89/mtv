@@ -50,7 +50,18 @@ data class DownloadEntry(
 )
 
 private const val MAX_CACHE_BYTES = 5L * 1024 * 1024 * 1024 // 5 GB
-private const val USER_AGENT = "MTV/1.1"
+/**
+ * User-Agent que el reproductor y las descargas presentan ante los servidores.
+ *
+ * IMPORTANTE: antes era "MTV/1.1". Varios proveedores Xtream tratan distinto a
+ * los User-Agent desconocidos: sirven el VOD sin cabeceras de rango
+ * (Accept-Ranges/Content-Length), con lo que ExoPlayer no recibe la duración
+ * y bloquea adelantar/retroceder en parte del contenido. Con un UA de
+ * navegador común el servidor responde como a cualquier cliente normal y el
+ * seek vuelve a funcionar.
+ */
+const val PLAYER_USER_AGENT =
+    "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
 /**
  * Módulo de descargas offline (Media3).
@@ -80,7 +91,7 @@ class DownloadModule(appContext: Context) {
         CacheDataSource.Factory()
             .setCache(cache)
             .setUpstreamDataSourceFactory(
-                DefaultHttpDataSource.Factory().setUserAgent(USER_AGENT)
+                DefaultHttpDataSource.Factory().setUserAgent(PLAYER_USER_AGENT)
             )
 
     val downloadManager: DownloadManager =
@@ -88,7 +99,7 @@ class DownloadModule(appContext: Context) {
             context,
             databaseProvider,
             cache,
-            DefaultHttpDataSource.Factory().setUserAgent(USER_AGENT),
+            DefaultHttpDataSource.Factory().setUserAgent(PLAYER_USER_AGENT),
             Executors.newFixedThreadPool(3),
         )
 

@@ -634,6 +634,7 @@ fun TvVodDetailsScreen(streamId: Int, onBack: () -> Unit) {
                                 vi.movieData.name,
                                 "vod:${vi.movieData.streamId}",
                                 tmdb?.posterUrl ?: vi.info.movieImage,
+                                subTmdbId = tmdb?.tmdbId,
                             )
                         }
                     }) { Text("▶ Reproducir") }

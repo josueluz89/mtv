@@ -64,6 +64,10 @@ object ExternalPlayer {
         mediaKey: String,
         imageUrl: String = "",
         zapChannels: List<ZapChannel> = emptyList(),
+        /** TMDB ID para buscar subtítulos por ID (OpenSubtitles). Null = sin búsqueda. */
+        subTmdbId: Int? = null,
+        subSeason: Int? = null,
+        subEpisode: Int? = null,
     ) {
         val activity = context as? ComponentActivity
         CoroutineScope(Dispatchers.Main).launch {
@@ -73,7 +77,7 @@ object ExternalPlayer {
             if (activity != null && resolveUseExternal(mode, activity)) {
                 playExternal(activity, url, title, mediaKey, container)
             } else {
-                PlayerActivity.start(context, url, title, mediaKey, imageUrl, zapChannels)
+                PlayerActivity.start(context, url, title, mediaKey, imageUrl, zapChannels, subTmdbId, subSeason, subEpisode)
             }
         }
     }

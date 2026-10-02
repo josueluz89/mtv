@@ -13,10 +13,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -33,7 +36,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mtv.iptv.di.LocalAppContainer
@@ -91,6 +97,11 @@ fun SubtitlesScreen(onBack: () -> Unit) {
     val subtitleSize by prefs.subtitleSize.collectAsState(initial = "M")
     val subtitleBackground by prefs.subtitleBackground.collectAsState(initial = "semi")
     val subtitleColor by prefs.subtitleColor.collectAsState(initial = "blanco")
+    val savedOsKey by prefs.openSubtitlesKey.collectAsState(initial = "")
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    // Texto en edición: null = aún no tocado, muestra el valor guardado.
+    var osKeyText by remember { mutableStateOf<String?>(null) }
 
     var sizeDialog by remember { mutableStateOf(false) }
     var backgroundDialog by remember { mutableStateOf(false) }
@@ -162,6 +173,38 @@ fun SubtitlesScreen(onBack: () -> Unit) {
                 title = "Color del texto",
                 subtitle = colorLabel(subtitleColor),
                 onClick = { colorDialog = true },
+            )
+            Text(
+                "Buscar subtítulos por internet",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp),
+            )
+            OutlinedTextField(
+                value = osKeyText ?: savedOsKey,
+                onValueChange = { osKeyText = it },
+                label = { Text("API key de OpenSubtitles") },
+                placeholder = { Text("Pégala aquí") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        setPref { prefs.setOpenSubtitlesKey(osKeyText.orEmpty().trim()) }
+                        osKeyText = null
+                        keyboard?.hide()
+                    },
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            Text(
+                "Gratis en opensubtitles.com. Sirve para buscar y descargar " +
+                    "subtítulos cuando la película o serie no trae.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
             Text(
                 "Se aplica al reproductor interno de la app.",

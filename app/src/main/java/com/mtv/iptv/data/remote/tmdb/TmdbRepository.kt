@@ -15,6 +15,8 @@ data class TmdbMedia(
     val similar: List<TmdbSearchResult>,
     val trailerKey: String?,
     val companies: List<TmdbProductionCompany> = emptyList(),
+    /** ID numérico de TMDB (para buscar subtítulos por ID en OpenSubtitles). */
+    val tmdbId: Int? = null,
 )
 
 /** Detalle de una persona (actor/actriz) + su filmografía ordenada por rating. */
@@ -83,6 +85,7 @@ class TmdbRepository(private val client: TmdbClient) {
                         .firstOrNull { it.site.equals("YouTube", ignoreCase = true) && it.type.equals("Trailer", ignoreCase = true) }?.key
                         ?: d.videos.results.firstOrNull { it.site.equals("YouTube", ignoreCase = true) }?.key,
                     companies = d.productionCompanies,
+                    tmdbId = hit.id,
                 )
             } catch (e: Exception) {
                 null
@@ -114,6 +117,7 @@ class TmdbRepository(private val client: TmdbClient) {
                     .firstOrNull { it.site.equals("YouTube", ignoreCase = true) && it.type.equals("Trailer", ignoreCase = true) }?.key
                     ?: d.videos.results.firstOrNull { it.site.equals("YouTube", ignoreCase = true) }?.key,
                 companies = d.productionCompanies,
+                tmdbId = hit.id,
             )
         } catch (e: Exception) {
             null

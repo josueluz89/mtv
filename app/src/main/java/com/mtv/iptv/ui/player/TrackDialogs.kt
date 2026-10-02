@@ -5,12 +5,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.mtv.iptv.player.PlayerManager
@@ -51,6 +55,7 @@ fun SubtitleTrackDialog(
     manager: PlayerManager,
     subtitleSize: String,
     onSizeSelect: (String) -> Unit,
+    onSearchClick: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     val options = manager.textTracks()
@@ -73,6 +78,32 @@ fun SubtitleTrackDialog(
                 }
                 if (options.isEmpty()) {
                     item { Text("Este video no trae subtítulos.", modifier = Modifier.padding(12.dp)) }
+                }
+                // Buscar subtítulos por internet (el integrador cablea el diálogo
+                // de búsqueda con el TMDB ID del contenido en reproducción).
+                // Solo se muestra cuando hay TMDB ID (películas/series).
+                onSearchClick?.let { search ->
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp, vertical = 4.dp)
+                                .safeClickable(onClick = search),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                            Text(
+                                "Buscar subtítulos",
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(vertical = 12.dp),
+                            )
+                        }
+                    }
                 }
                 item {
                     Text(

@@ -9,13 +9,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,16 +23,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.mtv.iptv.data.remote.xtream.XtreamVodStream
 import com.mtv.iptv.di.LocalAppContainer
 import com.mtv.iptv.ui.common.ImPosterCard
 import com.mtv.iptv.ui.common.MtvBg
-import com.mtv.iptv.ui.common.MtvOnVariant
 import com.mtv.iptv.ui.common.MtvUiTheme
-import com.mtv.iptv.ui.common.PrimaryButton
 import com.mtv.iptv.ui.common.ScreenTopBar
 import com.mtv.iptv.ui.common.SortMenuButton
 import com.mtv.iptv.ui.common.parseRating
@@ -46,14 +41,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Ventana de renderizado: jamás se dibujan los ~86k items de una vez. */
-private const val PAGE_SIZE = 200
-
 /**
- * "Ver todo" de películas: grilla paginada por ventanas de ~200 items con
- * botón "Cargar más". El catálogo completo vive en memoria (una sola llamada,
- * como v1.1) pero solo se renderiza la ventana visible; el filtrado y el
- * orden (v1.1: nombre/año/rating/recientes) corren con Dispatchers.Default.
+ * "Ver todo" de películas: grilla con el catálogo COMPLETO (sin paginación).
+ * El catálogo vive en memoria (una sola llamada, como v1.1); LazyVerticalGrid
+ * solo compone los items visibles, así que los ~86k items no se dibujan de
+ * una vez. El filtrado y el orden (v1.1: nombre/año/rating/recientes) corren
+ * con Dispatchers.Default.
  */
 @Composable
 fun AllMoviesScreen(
@@ -68,7 +61,6 @@ fun AllMoviesScreen(
     var filtered by remember { mutableStateOf<List<XtreamVodStream>>(emptyList()) }
     var query by remember { mutableStateOf("") }
     var sortKey by remember { mutableStateOf("nombre") }
-    var visibleCount by remember { mutableStateOf(PAGE_SIZE) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var reloadTick by remember { mutableStateOf(0) }
@@ -91,7 +83,6 @@ fun AllMoviesScreen(
             val f = if (q.isBlank()) all else all.filter { it.name.lowercase().contains(q) }
             sortCatalogItems(f, sortKey, { it.name }, { it.added }, { it.rating })
         }
-        visibleCount = PAGE_SIZE
     }
 
     fun changeSort(value: String) {
@@ -103,8 +94,6 @@ fun AllMoviesScreen(
             }
         }
     }
-
-    val visible = filtered.take(visibleCount)
 
     MtvUiTheme {
         Column(
@@ -140,7 +129,7 @@ fun AllMoviesScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        items(visible, key = { "${it.streamId}:${it.name}" }) { v ->
+                        items(filtered, key = { "${it.streamId}:${it.name}" }) { v ->
                             ImPosterCard(
                                 imageUrl = v.streamIcon.ifBlank { null },
                                 title = v.name,
@@ -148,27 +137,6 @@ fun AllMoviesScreen(
                                 onClick = { onVod(v.streamId) },
                                 cardWidth = 110.dp,
                             )
-                        }
-                        if (visibleCount < filtered.size) {
-                            item(span = { GridItemSpan(maxLineSpan) }) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 8.dp),
-                                ) {
-                                    Text(
-                                        "Mostrando $visibleCount de ${filtered.size}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MtvOnVariant,
-                                    )
-                                    PrimaryButton(
-                                        text = "Cargar más",
-                                        onClick = { visibleCount += PAGE_SIZE },
-                                        modifier = Modifier.padding(top = 8.dp),
-                                    )
-                                }
-                            }
                         }
                     }
                 }

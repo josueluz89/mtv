@@ -12,7 +12,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -47,6 +49,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -73,6 +76,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -84,7 +88,10 @@ import com.mtv.iptv.data.local.db.PlaybackEntity
 import com.mtv.iptv.data.remote.tmdb.TitleCleaner
 import com.mtv.iptv.data.remote.xtream.XtreamEpisode
 import com.mtv.iptv.di.LocalAppContainer
+import com.mtv.iptv.player.VodDurationProbe
 import com.mtv.iptv.player.ZapChannel
+import com.mtv.iptv.player.attachExternalSubtitle
+import com.mtv.iptv.player.downloads.PLAYER_USER_AGENT
 import com.mtv.iptv.ui.mobile.safeClickable
 import com.mtv.iptv.util.formatMs
 import kotlinx.coroutines.Job
@@ -117,6 +124,10 @@ fun PlayerScreen(
     imageUrl: String,
     onBack: () -> Unit,
     zapChannels: List<ZapChannel> = emptyList(),
+    /** TMDB ID para buscar subtítulos por ID (null = sin búsqueda, p. ej. en vivo). */
+    subTmdbId: Int? = null,
+    subSeason: Int? = null,
+    subEpisode: Int? = null,
 ) {
     val context = LocalContext.current
     val activity = context as Activity
@@ -135,6 +146,9 @@ fun PlayerScreen(
     var showSpeed by remember { mutableStateOf(false) }
     var showAudio by remember { mutableStateOf(false) }
     var showSubs by remember { mutableStateOf(false) }
+    /** Diálogo de búsqueda de subtítulos por TMDB ID (OpenSubtitles). */
+    var showSubSearch by remember { mutableStateOf(false) }
+    val openSubtitlesKey by container.userPrefs.openSubtitlesKey.collectAsState(initial = "")
     var showSleep by remember { mutableStateOf(false) }
     var showStreamInfo by remember { mutableStateOf(false) }
     var showChannels by remember { mutableStateOf(false) }
@@ -157,6 +171,15 @@ fun PlayerScreen(
 
     /** Zapping disponible solo en TV en vivo con lista de canales. */
     val isLiveZap = mediaKey.startsWith("live:") && zapChannels.isNotEmpty()
+
+    /** Película/serie (no en vivo): aquí sí aplica adelantar/retroceder. */
+    val isVod = !mediaKey.startsWith("live:")
+    /** Duración que reporta ExoPlayer (<= 0 cuando el servidor no la entrega). */
+    var exoDurationMs by remember { mutableStateOf(0L) }
+    /** Duración pedida directamente al servidor cuando ExoPlayer no la recibe. */
+    var probedDurationMs by remember { mutableStateOf<Long?>(null) }
+    /** Posición actual (para la barra de progreso manual). */
+    var positionMs by remember { mutableStateOf(0L) }
 
     /** Cambia al canal en vivo indicado sin salir del reproductor. */
     fun zapTo(channel: ZapChannel) {
@@ -341,6 +364,39 @@ fun PlayerScreen(
             startPlayback(0)
         }
         resumeChecked = true
+    }
+
+    // Sondeo de posición/duración + probe de duración al servidor.
+    //
+    // Parte del contenido VOD no le entrega la duración a ExoPlayer al inicio
+    // (el átomo moov del MP4 va al final del archivo y el servidor no anuncia
+    // soporte de rangos): el reproductor lo trata como "en vivo" y bloquea
+    // adelantar/retroceder. Si tras ~3 s ExoPlayer sigue sin duración, se le
+    // pide directamente al servidor (VodDurationProbe) y con eso se muestra
+    // una barra de progreso manual cuyos saltos se intentan siempre, igual
+    // que hacen otros reproductores.
+    LaunchedEffect(url, mediaKey) {
+        probedDurationMs = null
+        var probeDone = false
+        var ticksSinDuracion = 0
+        while (true) {
+            delay(500)
+            try {
+                positionMs = player.currentPosition
+                exoDurationMs = player.duration
+                if (isVod && !probeDone && exoDurationMs <= 0 &&
+                    player.playbackState != Player.STATE_IDLE
+                ) {
+                    ticksSinDuracion++
+                    if (ticksSinDuracion >= 6) {
+                        probeDone = true
+                        val d = VodDurationProbe.probe(url, PLAYER_USER_AGENT)
+                        if (d != null && d > 0) probedDurationMs = d
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
     }
 
     // Siguiente episodio automático al terminar (si el ajuste está activo).
@@ -564,6 +620,33 @@ fun PlayerScreen(
             }
         }
 
+        // Barra de progreso manual: solo cuando ExoPlayer no recibió la
+        // duración del servidor pero el probe sí la obtuvo. Los saltos se
+        // intentan siempre contra el servidor.
+        if (isVod && !locked && probedDurationMs != null && exoDurationMs <= 0) {
+            val total = probedDurationMs ?: 0L
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(formatMs(positionMs), color = Color.White, fontSize = 12.sp)
+                    Text(formatMs(total), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                }
+                Slider(
+                    value = positionMs.coerceAtMost(total).toFloat(),
+                    onValueChange = { player.seekTo(it.toLong()) },
+                    valueRange = 0f..total.toFloat(),
+                )
+            }
+        }
+
         // Indicador de gesto (volumen / brillo / seek)
         indicator?.let { ind ->
             Card(
@@ -634,7 +717,26 @@ fun PlayerScreen(
                     }
                 }
             },
+            onSearchClick = if (subTmdbId != null) {
+                { showSubs = false; showSubSearch = true }
+            } else {
+                null
+            },
             onDismiss = { showSubs = false },
+        )
+    }
+    // Búsqueda de subtítulos por TMDB ID (OpenSubtitles): descarga y activa.
+    if (showSubSearch && subTmdbId != null) {
+        SubtitleSearchDialog(
+            apiKey = openSubtitlesKey,
+            tmdbId = subTmdbId,
+            season = subSeason,
+            episode = subEpisode,
+            onSubtitleReady = { file ->
+                manager.attachExternalSubtitle(context, file, "Español")
+                showSubSearch = false
+            },
+            onDismiss = { showSubSearch = false },
         )
     }
     if (showSleep) {

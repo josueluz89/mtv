@@ -160,6 +160,20 @@ class UserPrefs(private val context: Context) {
         context.dataStore.edit { it[subtitleColorKey] = value }
     }
 
+    private val openSubtitlesKeyKey = stringPreferencesKey("opensubtitles_key")
+
+    /**
+     * API key de OpenSubtitles (gratuita en opensubtitles.com). Se usa para
+     * buscar/descargar subtítulos por TMDB ID cuando el video no trae.
+     * Default "" (sin configurar).
+     */
+    val openSubtitlesKey: Flow<String> =
+        context.dataStore.data.map { it[openSubtitlesKeyKey] ?: "" }
+
+    suspend fun setOpenSubtitlesKey(value: String) {
+        context.dataStore.edit { it[openSubtitlesKeyKey] = value }
+    }
+
     // ---------------- Descargas ----------------
 
     private val dlQualityKey = stringPreferencesKey("dl_quality")
