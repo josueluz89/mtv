@@ -50,7 +50,14 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
+    // BOM 2024.10.01 (familia Compose 1.7): alinea foundation, material3 y
+    // material-ripple. Con el BOM anterior (2024.06.00) el ripple que proveía
+    // Material3 era el PlatformRipple viejo (Indication) mientras foundation
+    // llegaba en 1.7 (vía tv-foundation) con el clickable nuevo que exige
+    // IndicationNodeFactory -> crash "clickable only supports
+    // IndicationNodeFactory" en cualquier componente que leyera LocalIndication
+    // (FilterChip, Card(onClick), Button...). No bajar este BOM sin revisar eso.
+    val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
