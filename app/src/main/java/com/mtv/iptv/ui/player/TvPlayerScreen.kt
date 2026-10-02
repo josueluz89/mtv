@@ -42,8 +42,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextOverflow
@@ -252,9 +250,11 @@ fun TvPlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .onPreviewKeyEvent { event: KeyEvent ->
+            .onPreviewKeyEvent { event ->
                 // Atrás siempre sale (no lo consumimos).
-                if (event.key == Key.Back) return@onPreviewKeyEvent false
+                if (event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK) {
+                    return@onPreviewKeyEvent false
+                }
                 val wasHidden = !controlsVisible
                 pokeControls()
                 // Con controles ocultos, la primera tecla solo los muestra.
