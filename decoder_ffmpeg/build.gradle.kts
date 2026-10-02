@@ -18,6 +18,11 @@ android {
 
     defaultConfig {
         minSdk = 26
+        // Solo ARM: coincide con las ABIs que compila build_ffmpeg.sh
+        // (teléfonos, Android TV, Firestick).
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
     }
 }
 
