@@ -127,7 +127,7 @@ fun SeriesDetailScreen(
         loading = false
     }
 
-    fun playEpisode(ep: XtreamEpisode, seriesName: String, poster: String, season: String) {
+    fun playEpisode(ep: XtreamEpisode, seriesName: String, poster: String, season: String?) {
         val epTitle = ep.title.ifBlank { "Episodio ${ep.episodeNum}" }
         ExternalPlayer.play(context, container,
             repo.episodeUrl(ep.id, ep.containerExtension),
@@ -135,7 +135,7 @@ fun SeriesDetailScreen(
             "ep:${ep.id}",
             ep.info.movieImage.ifBlank { poster },
             subTmdbId = tmdb?.tmdbId,
-            subSeason = season.toIntOrNull(),
+            subSeason = season?.toIntOrNull(),
             subEpisode = ep.episodeNum,
         )
     }
