@@ -24,7 +24,7 @@ android {
 // El build nativo solo se configura si FFmpeg ya fue compilado, para que
 // el proyecto sincronice sin NDK (mismo patrón que upstream).
 if (project.file("src/main/jni/ffmpeg").exists()) {
-    android.externalNativeBuild.cmake.path = "src/main/jni/CMakeLists.txt"
+    android.externalNativeBuild.cmake.path = file("src/main/jni/CMakeLists.txt")
     android.externalNativeBuild.cmake.version = "3.22.1+"
 }
 
