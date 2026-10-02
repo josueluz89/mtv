@@ -211,7 +211,7 @@ class DownloadModule(appContext: Context) {
         )
         cont.invokeOnCancellation { helper.release() }
         helper.prepare(object : DownloadHelper.Callback {
-            override fun onPrepared(h: DownloadHelper) {
+            override fun onPrepared(h: DownloadHelper, download: Boolean) {
                 try {
                     cont.resume(h.getDownloadRequest(id, data))
                 } catch (e: Exception) {

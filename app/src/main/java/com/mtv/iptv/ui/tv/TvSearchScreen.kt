@@ -133,11 +133,15 @@ fun TvSearchScreen(
                 item {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         items(liveResults, key = { "live:${it.streamId}" }) { s ->
-                            TvMediaCard(title = s.name, imageUrl = s.streamIcon.ifBlank { null }) {
+                            TvMediaCard(
+                                title = s.name,
+                                imageUrl = s.streamIcon.ifBlank { null },
+                                onClick = {
                                 ExternalPlayer.play(context, container, repo.liveUrl(s.streamId), s.name,
                                     "live:${s.streamId}", s.streamIcon,
                                 )
-                            }
+                                },
+                            )
                         }
                     }
                 }
@@ -147,9 +151,13 @@ fun TvSearchScreen(
                 item {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         items(vodResults, key = { "vod:${it.streamId}" }) { v ->
-                            TvMediaCard(title = v.name, imageUrl = v.streamIcon.ifBlank { null }) {
+                            TvMediaCard(
+                                title = v.name,
+                                imageUrl = v.streamIcon.ifBlank { null },
+                                onClick = {
                                 onVod(v.streamId)
-                            }
+                                },
+                            )
                         }
                     }
                 }
@@ -159,9 +167,13 @@ fun TvSearchScreen(
                 item {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         items(seriesResults, key = { "series:${it.seriesId}" }) { s ->
-                            TvMediaCard(title = s.name, imageUrl = s.cover.ifBlank { null }) {
+                            TvMediaCard(
+                                title = s.name,
+                                imageUrl = s.cover.ifBlank { null },
+                                onClick = {
                                 onSeries(s.seriesId)
-                            }
+                                },
+                            )
                         }
                     }
                 }

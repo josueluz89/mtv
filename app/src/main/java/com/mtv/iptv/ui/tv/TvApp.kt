@@ -344,7 +344,7 @@ fun TvSidebar(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun TvSidebarItem(
+private fun TvSidebarItem(
     selected: Boolean,
     item: TvNavItem,
     onClick: () -> Unit,
@@ -433,9 +433,13 @@ fun TvHomeScreen(
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(continueWatching, key = { it.mediaKey }) { item ->
-                        TvMediaCard(title = item.name, imageUrl = item.imageUrl.ifBlank { null }) {
+                        TvMediaCard(
+                            title = item.name,
+                            imageUrl = item.imageUrl.ifBlank { null },
+                            onClick = {
                             ExternalPlayer.play(context, container, item.url, item.name, item.mediaKey, item.imageUrl)
-                        }
+                            },
+                        )
                     }
                 }
             }
@@ -447,9 +451,14 @@ fun TvHomeScreen(
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(liveItems, key = { "${it.streamId}:${it.name}" }) { s ->
-                        TvMediaCard(title = s.name, imageUrl = s.streamIcon.ifBlank { null }, aspectRatio = 1f) {
+                        TvMediaCard(
+                            title = s.name,
+                            imageUrl = s.streamIcon.ifBlank { null },
+                            aspectRatio = 1f,
+                            onClick = {
                             ExternalPlayer.play(context, container, repo.liveUrl(s.streamId), s.name, "live:${s.streamId}", s.streamIcon)
-                        }
+                            },
+                        )
                     }
                 }
             }
@@ -461,9 +470,13 @@ fun TvHomeScreen(
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(vodItems, key = { "${it.streamId}:${it.name}" }) { v ->
-                        TvMediaCard(title = v.name, imageUrl = v.streamIcon.ifBlank { null }) {
+                        TvMediaCard(
+                            title = v.name,
+                            imageUrl = v.streamIcon.ifBlank { null },
+                            onClick = {
                             onVod(v.streamId)
-                        }
+                            },
+                        )
                     }
                 }
             }
@@ -475,9 +488,13 @@ fun TvHomeScreen(
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(seriesItems, key = { "${it.seriesId}:${it.name}" }) { s ->
-                        TvMediaCard(title = s.name, imageUrl = s.cover.ifBlank { null }) {
+                        TvMediaCard(
+                            title = s.name,
+                            imageUrl = s.cover.ifBlank { null },
+                            onClick = {
                             onSeries(s.seriesId)
-                        }
+                            },
+                        )
                     }
                 }
             }
@@ -1299,28 +1316,41 @@ fun TvCategoryItemsScreen(
             when (kind) {
                 "live" -> LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(liveList, key = { "${it.streamId}:${it.name}" }) { s ->
-                        TvMediaCard(title = s.name, imageUrl = s.streamIcon.ifBlank { null }, aspectRatio = 1f) {
+                        TvMediaCard(
+                            title = s.name,
+                            imageUrl = s.streamIcon.ifBlank { null },
+                            aspectRatio = 1f,
+                            onClick = {
                             ExternalPlayer.play(context, container,
                                 repo.liveUrl(s.streamId),
                                 s.name,
                                 "live:${s.streamId}",
                                 s.streamIcon,
                             )
-                        }
+                            },
+                        )
                     }
                 }
                 "vod" -> LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(vodList, key = { "${it.streamId}:${it.name}" }) { v ->
-                        TvMediaCard(title = v.name, imageUrl = v.streamIcon.ifBlank { null }) {
+                        TvMediaCard(
+                            title = v.name,
+                            imageUrl = v.streamIcon.ifBlank { null },
+                            onClick = {
                             onVod(v.streamId)
-                        }
+                            },
+                        )
                     }
                 }
                 else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(seriesList, key = { "${it.seriesId}:${it.name}" }) { s ->
-                        TvMediaCard(title = s.name, imageUrl = s.cover.ifBlank { null }) {
+                        TvMediaCard(
+                            title = s.name,
+                            imageUrl = s.cover.ifBlank { null },
+                            onClick = {
                             onSeries(s.seriesId)
-                        }
+                            },
+                        )
                     }
                 }
             }
