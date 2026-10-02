@@ -159,4 +159,37 @@ class UserPrefs(private val context: Context) {
             it[sortSeriesKey] = value
         }
     }
+
+    // ---------------- Red ----------------
+
+    private val privateDnsKey = booleanPreferencesKey("private_dns")
+
+    /**
+     * DNS privado (DNS-over-HTTPS contra Cloudflare 1.1.1.1). Apagado por defecto.
+     * Se aplica al OkHttpClient de Xtream, TMDB y el test de velocidad.
+     */
+    val privateDns: Flow<Boolean> = context.dataStore.data.map { it[privateDnsKey] ?: false }
+
+    suspend fun setPrivateDns(value: Boolean) {
+        context.dataStore.edit { it[privateDnsKey] = value }
+    }
+
+    private val lastSpeedMbpsKey = floatPreferencesKey("last_speed_mbps")
+    private val lastSpeedAtKey = longPreferencesKey("last_speed_at")
+    private val lastSpeedDnsKey = stringPreferencesKey("last_speed_dns")
+
+    /** Última medición del test de velocidad (-1 si nunca se midió). */
+    val lastSpeedMbps: Flow<Float> = context.dataStore.data.map { it[lastSpeedMbpsKey] ?: -1f }
+    val lastSpeedAt: Flow<Long> = context.dataStore.data.map { it[lastSpeedAtKey] ?: 0L }
+
+    /** "Cloudflare 1.1.1.1" o "sistema": con qué DNS se hizo la última medición. */
+    val lastSpeedDns: Flow<String> = context.dataStore.data.map { it[lastSpeedDnsKey] ?: "sistema" }
+
+    suspend fun setLastSpeed(mbps: Float, dnsLabel: String) {
+        context.dataStore.edit {
+            it[lastSpeedMbpsKey] = mbps
+            it[lastSpeedAtKey] = System.currentTimeMillis()
+            it[lastSpeedDnsKey] = dnsLabel
+        }
+    }
 }

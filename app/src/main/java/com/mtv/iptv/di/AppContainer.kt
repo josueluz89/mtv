@@ -5,6 +5,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import com.mtv.iptv.data.local.db.MtvDatabase
 import com.mtv.iptv.data.local.prefs.SecurePrefs
 import com.mtv.iptv.data.local.prefs.UserPrefs
+import com.mtv.iptv.data.remote.HttpClientProvider
+import com.mtv.iptv.data.remote.SpeedTest
 import com.mtv.iptv.data.remote.tmdb.TmdbClient
 import com.mtv.iptv.data.remote.tmdb.TmdbRepository
 import com.mtv.iptv.data.remote.xtream.XtreamClient
@@ -23,13 +25,18 @@ class AppContainer(appContext: Context) {
     val userPrefs: UserPrefs by lazy { UserPrefs(appContext) }
     val securePrefs: SecurePrefs by lazy { SecurePrefs(appContext) }
 
-    val xtreamClient = XtreamClient()
+    /** Proveedor central de HTTP (aplica el DNS privado cuando está activado). */
+    val httpClientProvider = HttpClientProvider()
+
+    val xtreamClient = XtreamClient(httpClientProvider)
     val xtreamRepository = XtreamRepository(xtreamClient).also {
         it.eventLog = { msg -> CrashReporter.log(appContext, "xtream", msg) }
     }
 
-    val tmdbClient = TmdbClient()
+    val tmdbClient = TmdbClient(httpClientProvider)
     val tmdbRepository = TmdbRepository(tmdbClient)
+
+    val speedTest by lazy { SpeedTest(httpClientProvider, xtreamRepository) }
 
     val serverRepository by lazy { ServerRepository(database.serverDao()) }
     val favoritesRepository by lazy { FavoritesRepository(database.favoriteDao()) }

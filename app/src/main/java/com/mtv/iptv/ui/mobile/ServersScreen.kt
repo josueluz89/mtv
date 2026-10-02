@@ -11,12 +11,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -67,7 +71,11 @@ object LoginFlowState {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ServersScreen(onConnected: () -> Unit) {
+fun ServersScreen(
+    onConnected: () -> Unit,
+    addMode: Boolean = false,
+    onBack: () -> Unit = {},
+) {
     val container = LocalAppContainer.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -124,6 +132,8 @@ fun ServersScreen(onConnected: () -> Unit) {
         }
 
         // Login automático silencioso con las credenciales guardadas.
+        // En modo agregar no hay auto-login: es para guardar OTRO usuario.
+        if (addMode) return@LaunchedEffect
         val (autoUser, autoPass) = autoCreds ?: return@LaunchedEffect
         autoLogin = true
         when (val result = container.xtreamRepository.loginAuto(autoUser, autoPass)) {
@@ -133,7 +143,7 @@ fun ServersScreen(onConnected: () -> Unit) {
                     name = "MTV",
                     url = result.session.baseUrl,
                     username = autoUser,
-                    password = autoPass,
+                    password = "", // la clave vive solo cifrada en SecurePrefs
                 )
                 container.serverRepository.upsert(updated)
                 container.xtreamRepository.updateSessionServer(updated)
@@ -172,24 +182,45 @@ fun ServersScreen(onConnected: () -> Unit) {
         scope.launch {
             when (val result = container.xtreamRepository.loginAuto(user, password)) {
                 is LoginResult.Ok -> {
-                    // Fila única estable: se actualiza con la URL efectiva y las credenciales.
-                    val row = container.serverRepository.getOrCreateSingle()
-                    val updated = row.copy(
-                        name = "MTV",
-                        url = result.session.baseUrl,
-                        username = user,
-                        password = password,
-                    )
-                    container.serverRepository.upsert(updated)
-                    container.xtreamRepository.updateSessionServer(updated)
-                    // Guardar CIFRADO por servidor (SecurePrefs), no en plano.
-                    container.securePrefs.saveCredentials(row.id, user, password)
-                    container.securePrefs.setLastServerId(row.id)
-                    container.userPrefs.setLastServerId(row.id)
-                    container.userPrefs.clearCredentials()
-                    savedServer = updated
-                    loading = false
-                    onConnected()
+                    if (addMode) {
+                        // Multi-usuario: crea OTRA fila para el nuevo usuario.
+                        val host = result.session.baseUrl.substringAfter("://").substringBefore("/")
+                        val newId = container.serverRepository.upsert(
+                            com.mtv.iptv.data.local.db.ServerEntity(
+                                name = "$user @ $host",
+                                url = result.session.baseUrl,
+                                username = user,
+                                password = "",
+                            )
+                        )
+                        val saved = container.serverRepository.getById(newId)
+                        if (saved != null) container.xtreamRepository.updateSessionServer(saved)
+                        container.securePrefs.saveCredentials(newId, user, password)
+                        container.securePrefs.setLastServerId(newId)
+                        container.userPrefs.setLastServerId(newId)
+                        container.userPrefs.clearCredentials()
+                        loading = false
+                        onConnected()
+                    } else {
+                        // Fila única estable: se actualiza con la URL efectiva.
+                        val row = container.serverRepository.getOrCreateSingle()
+                        val updated = row.copy(
+                            name = "MTV",
+                            url = result.session.baseUrl,
+                            username = user,
+                            password = "",
+                        )
+                        container.serverRepository.upsert(updated)
+                        container.xtreamRepository.updateSessionServer(updated)
+                        // Guardar CIFRADO por servidor (SecurePrefs), no en plano.
+                        container.securePrefs.saveCredentials(row.id, user, password)
+                        container.securePrefs.setLastServerId(row.id)
+                        container.userPrefs.setLastServerId(row.id)
+                        container.userPrefs.clearCredentials()
+                        savedServer = updated
+                        loading = false
+                        onConnected()
+                    }
                 }
                 LoginResult.AuthFailed -> {
                     loading = false
@@ -204,7 +235,18 @@ fun ServersScreen(onConnected: () -> Unit) {
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("MTV") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text(if (addMode) "Agregar usuario" else "MTV") },
+                navigationIcon = {
+                    if (addMode) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Atrás")
+                        }
+                    }
+                },
+            )
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         if (autoLogin) {

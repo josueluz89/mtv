@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -45,6 +47,8 @@ import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.scheduler.Requirements
 import coil.imageLoader
 import com.mtv.iptv.BuildConfig
+import com.mtv.iptv.data.remote.SpeedTest
+import com.mtv.iptv.data.remote.xtream.LoginResult
 import com.mtv.iptv.di.LocalAppContainer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -58,7 +62,12 @@ import java.io.File
  * sin borrar credenciales).
  */
 @Composable
-fun SettingsContent(onServers: () -> Unit, onLogout: () -> Unit) {
+fun SettingsContent(
+    onServers: () -> Unit,
+    onLogout: () -> Unit,
+    onHome: () -> Unit,
+    onAddUser: () -> Unit,
+) {
     val container = LocalAppContainer.current
     val prefs = container.userPrefs
     val scope = rememberCoroutineScope()
@@ -76,6 +85,10 @@ fun SettingsContent(onServers: () -> Unit, onLogout: () -> Unit) {
     val theme by prefs.theme.collectAsState(initial = "sistema")
     val language by prefs.language.collectAsState(initial = "es")
     val defaultSort by prefs.defaultSort.collectAsState(initial = "nombre")
+    val privateDns by prefs.privateDns.collectAsState(initial = false)
+    val lastSpeedMbps by prefs.lastSpeedMbps.collectAsState(initial = -1f)
+    val lastSpeedAt by prefs.lastSpeedAt.collectAsState(initial = 0L)
+    val lastSpeedDns by prefs.lastSpeedDns.collectAsState(initial = "sistema")
 
     var speedDialog by remember { mutableStateOf(false) }
     var qualityDialog by remember { mutableStateOf(false) }
@@ -88,15 +101,114 @@ fun SettingsContent(onServers: () -> Unit, onLogout: () -> Unit) {
     var usedBytes by remember { mutableStateOf(-1L) }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // Test de velocidad.
+    var speedTestRunning by remember { mutableStateOf(false) }
+    var speedResult by remember { mutableStateOf<SpeedTest.Result?>(null) }
+    var showSpeedResult by remember { mutableStateOf(false) }
+
+    // Multi-usuario.
+    data class UserEntry(val id: Long, val label: String, val username: String)
+    var users by remember { mutableStateOf<List<UserEntry>>(emptyList()) }
+    var activeUserId by remember { mutableStateOf(-1L) }
+    var confirmDeleteUser by remember { mutableStateOf<UserEntry?>(null) }
+
     fun setPref(action: suspend () -> Unit) = scope.launch { action() }
 
     fun refreshUsedSpace() {
         usedBytes = calcUsedSpace(downloadManager)
     }
 
-    LaunchedEffect(Unit) { refreshUsedSpace() }
+    LaunchedEffect(Unit) {
+        refreshUsedSpace()
+        refreshUsers()
+    }
 
     fun showMessage(msg: String) = scope.launch { snackbarHostState.showSnackbar(msg) }
+
+    // ---------------- Multi-usuario ----------------
+
+    /** Usuarios guardados = filas de servidor con credenciales cifradas. */
+    fun refreshUsers() = scope.launch {
+        val secure = container.securePrefs
+        val servers = container.serverRepository.getAll()
+        users = servers
+            .filter { secure.hasCredentials(it.id) }
+            .map { s ->
+                val host = s.url.substringAfter("://").substringBefore("/").ifBlank { s.url }
+                UserEntry(
+                    id = s.id,
+                    label = s.name.ifBlank { host }.ifBlank { "Usuario" },
+                    username = s.username,
+                )
+            }
+        activeUserId = secure.getLastServerId()
+    }
+
+    /** Cambia al usuario indicado: login + lo marca activo + vuelve al inicio. */
+    fun switchUser(user: UserEntry) = scope.launch {
+        val creds = container.securePrefs.getCredentials(user.id)
+        if (creds == null) {
+            showMessage("Sin credenciales guardadas")
+            return@launch
+        }
+        showMessage("Conectando como ${user.username}…")
+        when (val r = container.xtreamRepository.loginAuto(creds.first, creds.second)) {
+            is LoginResult.Ok -> {
+                val server = container.serverRepository.getById(user.id)
+                if (server != null) {
+                    val updated = server.copy(url = r.session.baseUrl, username = creds.first, password = "")
+                    container.serverRepository.upsert(updated)
+                    container.xtreamRepository.updateSessionServer(updated)
+                }
+                container.securePrefs.setLastServerId(user.id)
+                container.userPrefs.setLastServerId(user.id)
+                onHome()
+            }
+            LoginResult.AuthFailed -> showMessage("Usuario o contraseña inválidos")
+            is LoginResult.NetworkError -> showMessage("No se pudo conectar con el servidor")
+        }
+    }
+
+    fun deleteUser(user: UserEntry) = scope.launch {
+        val server = container.serverRepository.getById(user.id)
+        if (server != null) container.serverRepository.delete(server)
+        container.securePrefs.clearCredentials(user.id)
+        val wasActive = user.id == container.securePrefs.getLastServerId()
+        if (wasActive) {
+            container.xtreamRepository.logout()
+            onLogout()
+        } else {
+            refreshUsers()
+            showMessage("Usuario eliminado")
+        }
+    }
+
+    // ---------------- Test de velocidad ----------------
+
+    fun lastSpeedSubtitle(): String {
+        if (lastSpeedMbps < 0) return "Medí tu conexión contra el servidor"
+        return "Última: %.1f Mbps · %s · %s".format(
+            lastSpeedMbps, SpeedTest.verdictFor(lastSpeedMbps.toDouble()), timeAgo(lastSpeedAt)
+        )
+    }
+
+    fun runSpeedTest() = scope.launch {
+        if (container.xtreamRepository.session == null) {
+            showMessage("Iniciá sesión primero")
+            return@launch
+        }
+        speedTestRunning = true
+        try {
+            val result = container.speedTest.run()
+            speedResult = result
+            showSpeedResult = true
+            setPref { prefs.setLastSpeed(result.mbps.toFloat(), result.dnsLabel) }
+        } catch (e: Exception) {
+            showMessage("No se pudo medir: ${e.message ?: "error de red"}")
+        } finally {
+            speedTestRunning = false
+        }
+    }
 
     fun clearCache() = scope.launch {
         withContext(Dispatchers.IO) {
@@ -198,11 +310,57 @@ fun SettingsContent(onServers: () -> Unit, onLogout: () -> Unit) {
                 onClick = { sortDialog = true },
             )
 
+            SectionHeader("RED")
+            SettingsSwitch(
+                title = "DNS privado (Cloudflare 1.1.1.1)",
+                subtitle = "Evita bloqueos de tu proveedor de internet",
+                checked = privateDns,
+                onCheckedChange = { enabled ->
+                    setPref {
+                        prefs.setPrivateDns(enabled)
+                        // Aplica de inmediato al proveedor HTTP (además de persistir).
+                        container.httpClientProvider.usePrivateDns = enabled
+                    }
+                },
+            )
+            SettingsRow(
+                title = "DNS activo",
+                subtitle = if (privateDns) "Cloudflare 1.1.1.1" else "DNS del sistema",
+                onClick = null,
+            )
+            SettingsRow(
+                title = if (speedTestRunning) "Midiendo velocidad…" else "Probar velocidad",
+                subtitle = lastSpeedSubtitle(),
+                onClick = { if (!speedTestRunning) runSpeedTest() },
+            )
+
             SectionHeader("SERVIDORES")
             SettingsRow(
                 title = "Servidores",
                 subtitle = "Gestionar servidores Xtream",
                 onClick = onServers,
+            )
+
+            SectionHeader("USUARIOS")
+            users.forEach { user ->
+                SettingsRow(
+                    title = (if (user.id == activeUserId) "● " else "") + user.label,
+                    subtitle = user.username + if (user.id == activeUserId) " · Activo" else "",
+                    onClick = { if (user.id != activeUserId) switchUser(user) },
+                    trailing = {
+                        IconButton(onClick = { confirmDeleteUser = user }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Eliminar usuario")
+                        }
+                    },
+                )
+            }
+            SettingsRow(
+                title = "Agregar usuario",
+                subtitle = "Guardar otro servidor + usuario + clave",
+                onClick = onAddUser,
+                trailing = {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                },
             )
 
             SectionHeader("CUENTA")
@@ -341,6 +499,7 @@ fun SettingsContent(onServers: () -> Unit, onLogout: () -> Unit) {
                     scope.launch {
                         container.securePrefs.clearAll()
                         container.userPrefs.clearCredentials()
+                        refreshUsers()
                         showMessage("Credenciales olvidadas")
                     }
                 }) { Text("Olvidar") }
@@ -350,12 +509,66 @@ fun SettingsContent(onServers: () -> Unit, onLogout: () -> Unit) {
             },
         )
     }
+
+    // Resultado del test de velocidad.
+    if (showSpeedResult && speedResult != null) {
+        val r = speedResult!!
+        AlertDialog(
+            onDismissRequest = { showSpeedResult = false },
+            title = { Text("Velocidad de descarga") },
+            text = {
+                Column {
+                    Text(
+                        "%.1f Mbps".format(r.mbps),
+                        style = MaterialTheme.typography.headlineMedium,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(r.verdict)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        if (r.dnsLabel == "sistema") "DNS: sistema"
+                        else "DNS: ${r.dnsLabel} ✓",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSpeedResult = false }) { Text("Cerrar") }
+            },
+        )
+    }
+
+    // Confirmar eliminar usuario.
+    val userToDelete = confirmDeleteUser
+    if (userToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteUser = null },
+            title = { Text("Eliminar usuario") },
+            text = { Text("Se borra ${userToDelete.username} (${userToDelete.label}) de este dispositivo. ¿Seguro?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDeleteUser = null
+                    deleteUser(userToDelete)
+                }) { Text("Eliminar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteUser = null }) { Text("Cancelar") }
+            },
+        )
+    }
 }
 
 /** Pantalla de configuración (móvil). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onServers: () -> Unit, onLogout: () -> Unit) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onServers: () -> Unit,
+    onLogout: () -> Unit,
+    onHome: () -> Unit,
+    onAddUser: () -> Unit,
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -369,7 +582,7 @@ fun SettingsScreen(onBack: () -> Unit, onServers: () -> Unit, onLogout: () -> Un
         },
     ) { padding ->
         Box(Modifier.padding(padding)) {
-            SettingsContent(onServers = onServers, onLogout = onLogout)
+            SettingsContent(onServers = onServers, onLogout = onLogout, onHome = onHome, onAddUser = onAddUser)
         }
     }
 }
@@ -519,6 +732,18 @@ private fun formatBytes(bytes: Long): String = when {
     bytes < 0 -> "Calculando…"
     bytes >= 1024L * 1024 * 1024 -> "%.2f GB".format(bytes / (1024.0 * 1024 * 1024))
     else -> "%.1f MB".format(bytes / (1024.0 * 1024))
+}
+
+/** "hace 5 min", "hace 2 h", "ayer", etc. para la última medición. */
+private fun timeAgo(timestampMs: Long): String {
+    if (timestampMs <= 0) return "nunca"
+    val mins = (System.currentTimeMillis() - timestampMs) / 60_000
+    return when {
+        mins < 1 -> "ahora mismo"
+        mins < 60 -> "hace $mins min"
+        mins < 60 * 24 -> "hace ${mins / 60} h"
+        else -> "hace ${mins / (60 * 24)} d"
+    }
 }
 
 /**

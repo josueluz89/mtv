@@ -1,13 +1,13 @@
 package com.mtv.iptv.data.remote.xtream
 
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import com.mtv.iptv.data.remote.HttpClientProvider
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
-import java.util.concurrent.TimeUnit
 
-class XtreamClient {
+class XtreamClient(private val httpProvider: HttpClientProvider) {
 
     val json: Json = Json {
         ignoreUnknownKeys = true
@@ -16,12 +16,12 @@ class XtreamClient {
         explicitNulls = false
     }
 
-    private val http: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .build()
+    /**
+     * El cliente se pide al proveedor en cada llamada: así el toggle de DNS
+     * privado aplica de verdad sin reconstruir nada más.
+     */
+    private val http: OkHttpClient
+        get() = httpProvider.client()
 
     fun api(baseUrl: String): XtreamApi {
         val retrofit = Retrofit.Builder()

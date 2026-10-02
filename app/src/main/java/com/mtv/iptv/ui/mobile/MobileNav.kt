@@ -18,6 +18,7 @@ object Routes {
     const val SERIES = "series/{seriesId}"
     const val DOWNLOADS = "downloads"
     const val SETTINGS = "settings"
+    const val ADD_USER = "add_user"
     const val ACTOR = "actor/{personId}"
     const val COMPANY = "company/{companyId}"
 
@@ -135,6 +136,19 @@ fun MobileNav() {
                         popUpTo(Routes.HOME) { inclusive = true }
                     }
                 },
+                onHome = {
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(Routes.HOME) { inclusive = true }
+                    }
+                },
+                onAddUser = { navController.navigate(Routes.ADD_USER) },
+            )
+        }
+        composable(Routes.ADD_USER) {
+            ServersScreen(
+                addMode = true,
+                onConnected = { navController.popBackStack() },
+                onBack = { navController.popBackStack() },
             )
         }
         composable(

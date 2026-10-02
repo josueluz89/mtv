@@ -50,6 +50,9 @@ class SecurePrefs(context: Context) {
             .apply()
     }
 
+    /** true si hay credenciales guardadas para ese servidor (usuario multi-usuario). */
+    fun hasCredentials(serverId: Long): Boolean = getCredentials(serverId) != null
+
     fun setLastServerId(id: Long) {
         prefs.edit().putLong("last_server_id", id).apply()
     }

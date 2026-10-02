@@ -108,6 +108,19 @@ fun TvApp() {
                             popUpTo("tv_browse") { inclusive = true }
                         }
                     },
+                    onHome = {
+                        navController.navigate("tv_browse") {
+                            popUpTo("tv_browse") { inclusive = true }
+                        }
+                    },
+                    onAddUser = { navController.navigate("tv_add_user") },
+                )
+            }
+            composable("tv_add_user") {
+                TvServersScreen(
+                    addMode = true,
+                    onConnected = { navController.popBackStack() },
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable(
@@ -171,7 +184,11 @@ fun TvApp() {
  */
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalTvFoundationApi::class)
 @Composable
-fun TvServersScreen(onConnected: () -> Unit) {
+fun TvServersScreen(
+    onConnected: () -> Unit,
+    addMode: Boolean = false,
+    onBack: () -> Unit = {},
+) {
     val container = LocalAppContainer.current
     val scope = rememberCoroutineScope()
 
@@ -211,6 +228,8 @@ fun TvServersScreen(onConnected: () -> Unit) {
         }
 
         // Login automático silencioso con las credenciales guardadas.
+        // En modo agregar no hay auto-login: es para guardar OTRO usuario.
+        if (addMode) return@LaunchedEffect
         val (autoUser, autoPass) = autoCreds ?: return@LaunchedEffect
         autoLogin = true
         when (val result = container.xtreamRepository.loginAuto(autoUser, autoPass)) {
@@ -220,7 +239,7 @@ fun TvServersScreen(onConnected: () -> Unit) {
                     name = "MTV",
                     url = result.session.baseUrl,
                     username = autoUser,
-                    password = autoPass,
+                    password = "",
                 )
                 container.serverRepository.upsert(updated)
                 container.xtreamRepository.updateSessionServer(updated)
@@ -252,22 +271,43 @@ fun TvServersScreen(onConnected: () -> Unit) {
         scope.launch {
             when (val result = container.xtreamRepository.loginAuto(user, password)) {
                 is LoginResult.Ok -> {
-                    // Fila única estable: se actualiza con la URL efectiva y las credenciales.
-                    val row = container.serverRepository.getOrCreateSingle()
-                    val updated = row.copy(
-                        name = "MTV",
-                        url = result.session.baseUrl,
-                        username = user,
-                        password = password,
-                    )
-                    container.serverRepository.upsert(updated)
-                    container.xtreamRepository.updateSessionServer(updated)
-                    container.securePrefs.saveCredentials(row.id, user, password)
-                    container.securePrefs.setLastServerId(row.id)
-                    container.userPrefs.setLastServerId(row.id)
-                    container.userPrefs.clearCredentials()
-                    loading = false
-                    onConnected()
+                    if (addMode) {
+                        // Multi-usuario: crea OTRA fila para el nuevo usuario.
+                        val host = result.session.baseUrl.substringAfter("://").substringBefore("/")
+                        val newId = container.serverRepository.upsert(
+                            com.mtv.iptv.data.local.db.ServerEntity(
+                                name = "$user @ $host",
+                                url = result.session.baseUrl,
+                                username = user,
+                                password = "",
+                            )
+                        )
+                        val saved = container.serverRepository.getById(newId)
+                        if (saved != null) container.xtreamRepository.updateSessionServer(saved)
+                        container.securePrefs.saveCredentials(newId, user, password)
+                        container.securePrefs.setLastServerId(newId)
+                        container.userPrefs.setLastServerId(newId)
+                        container.userPrefs.clearCredentials()
+                        loading = false
+                        onConnected()
+                    } else {
+                        // Fila única estable: se actualiza con la URL efectiva.
+                        val row = container.serverRepository.getOrCreateSingle()
+                        val updated = row.copy(
+                            name = "MTV",
+                            url = result.session.baseUrl,
+                            username = user,
+                            password = "",
+                        )
+                        container.serverRepository.upsert(updated)
+                        container.xtreamRepository.updateSessionServer(updated)
+                        container.securePrefs.saveCredentials(row.id, user, password)
+                        container.securePrefs.setLastServerId(row.id)
+                        container.userPrefs.setLastServerId(row.id)
+                        container.userPrefs.clearCredentials()
+                        loading = false
+                        onConnected()
+                    }
                 }
                 LoginResult.AuthFailed -> {
                     loading = false
@@ -288,7 +328,13 @@ fun TvServersScreen(onConnected: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("MTV", style = MaterialTheme.typography.displaySmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (addMode) {
+                Button(onClick = onBack) { Text("Atrás") }
+                Spacer(Modifier.width(16.dp))
+            }
+            Text(if (addMode) "Agregar usuario" else "MTV", style = MaterialTheme.typography.displaySmall)
+        }
         Spacer(Modifier.height(24.dp))
         if (autoLogin) {
             Text("Conectando…", style = MaterialTheme.typography.headlineSmall)
@@ -334,6 +380,8 @@ fun TvSettingsScreen(
     onBack: () -> Unit,
     onServers: () -> Unit,
     onLogout: () -> Unit,
+    onHome: () -> Unit,
+    onAddUser: () -> Unit,
 ) {
     MaterialTheme {
         Column(
@@ -347,7 +395,7 @@ fun TvSettingsScreen(
                 Text("Configuración", style = MaterialTheme.typography.headlineSmall)
             }
             Spacer(Modifier.height(16.dp))
-            SettingsContent(onServers = onServers, onLogout = onLogout)
+            SettingsContent(onServers = onServers, onLogout = onLogout, onHome = onHome, onAddUser = onAddUser)
         }
     }
 }
