@@ -50,8 +50,6 @@ jobs:
           echo "FFmpeg compilado:"
           find "$MOD/jni/ffmpeg/android-libs" -name "*.a" | head -8
 
-      - name: Upload FFmpeg libs artifact (LGPL §6)
-        uses: actions/upload-artifact@v4
           retention-days: 5
         with:
           name: ffmpeg-lgpl-libs
@@ -64,8 +62,6 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleDebug --no-daemon
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
           retention-days: 5
         with:
           name: mtv-debug-apk
