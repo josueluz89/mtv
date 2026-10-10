@@ -52,6 +52,7 @@ jobs:
 
       - name: Upload FFmpeg libs artifact (LGPL §6)
         uses: actions/upload-artifact@v4
+          retention-days: 5
         with:
           name: ffmpeg-lgpl-libs
           path: decoder_ffmpeg/src/main/jni/ffmpeg/android-libs
@@ -65,6 +66,7 @@ jobs:
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
+          retention-days: 5
         with:
           name: mtv-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
